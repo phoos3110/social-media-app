@@ -186,3 +186,41 @@ html[data-theme='dark'] .dropdown .danger {
 html[data-theme='dark'] .notification-icon > span {
   border-color: var(--dark-card);
 }
+html[data-theme='dark']
+  :is(
+    .muted,
+    .small,
+    .page-heading p,
+    .section-toolbar,
+    .section-title h3,
+    .contact-row small,
+    .suggestion small,
+    .site-footer,
+    .connection-state,
+    .notice small
+  ) {
+  color: var(--dark-muted);
+}
+html[data-theme='dark'] .notice.unread {
+  background: #213247;
+}
+html[data-theme='dark'] .notice:hover,
+html[data-theme='dark'] .contact-row:hover {
+  background: var(--dark-hover);
+}
+html[data-theme='dark'] .notice.unread:hover {
+  background: #2a405a;
+}
+html[data-theme='dark'] .notice-kind {
+  border-color: var(--dark-card);
+}
+@media (max-width: 600px) {
+  .notifications-list {
+    padding: 5px;
+    border-radius: 12px;
+  }
+  .notice {
+    padding: 14px 10px;
+    gap: 12px;
+  }
+}

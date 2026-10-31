@@ -594,6 +594,58 @@ textarea:focus {
 }
 .notice {
   border-color: #e4e6eb;
+  padding: 18px 20px;
+  gap: 16px;
+  min-height: 94px;
+  border-radius: 10px;
+  border-bottom: 0;
+}
+.notification-toolbar {
+  margin-bottom: 16px;
+  padding: 4px 2px;
+  gap: 12px;
+}
+.notifications-list {
+  padding: 8px;
+  border-radius: 16px;
+  display: grid;
+  gap: 4px;
+}
+.notice-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+}
+.notice-avatar > .avatar {
+  width: 48px;
+  height: 48px;
+}
+.notice-kind {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: #1877f2;
+  color: white;
+}
+.notice-kind-like .notice-kind {
+  background: #e54870;
+}
+.notice-kind-comment .notice-kind {
+  background: #249b70;
+}
+.notice-content {
+  overflow-wrap: anywhere;
+}
+.notice:focus-visible {
+  outline-offset: -3px;
 }
 .notice p {
   color: #1c1e21;

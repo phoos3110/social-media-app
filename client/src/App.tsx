@@ -7,6 +7,7 @@ import {
   CheckCheck,
   Compass,
   Home,
+  Heart,
   LogOut,
   MessageCircle,
   Search,
@@ -610,7 +611,7 @@ export default function App() {
                 )}
                 {view === 'notifications' && (
                   <>
-                    <div className="section-toolbar">
+                    <div className="section-toolbar notification-toolbar">
                       <span>{unread} thông báo chưa đọc</span>
                       <button
                         className="text-button"
@@ -659,8 +660,19 @@ export default function App() {
                               }
                             }}
                           >
-                            <Avatar user={n.actor} />
-                            <span>
+                            <span className={`notice-avatar notice-kind-${n.kind}`}>
+                              <Avatar user={n.actor} />
+                              <span className="notice-kind" aria-hidden="true">
+                                {n.kind === 'like' ? (
+                                  <Heart size={12} />
+                                ) : n.kind === 'comment' ? (
+                                  <MessageCircle size={12} />
+                                ) : (
+                                  <Users size={12} />
+                                )}
+                              </span>
+                            </span>
+                            <span className="notice-content">
                               <p>
                                 <strong>{n.actor.name}</strong>{' '}
                                 {n.kind === 'like'

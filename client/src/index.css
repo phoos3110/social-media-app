@@ -1111,8 +1111,9 @@ label textarea {
 .notice:hover {
   background: #edf3e7;
 }
-.notice > span {
+.notice > .notice-content {
   flex: 1;
+  min-width: 0;
 }
 .notice p {
   font-size: 12px;
