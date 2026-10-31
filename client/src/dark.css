@@ -15,6 +15,12 @@ html[data-theme='dark'] .suggestions {
   background: #242526;
 }
 html[data-theme='dark'] {
+  --po-surface: #242526;
+  --po-input: #18191a;
+  --po-hover: #3a3b3c;
+  --po-text: #e4e6eb;
+  --po-muted: #b0b3b8;
+  --po-border: #3e4042;
   --dark-bg: #18191a;
   --dark-card: #242526;
   --dark-input: #3a3b3c;
@@ -185,6 +191,46 @@ html[data-theme='dark'] .dropdown .danger {
 }
 html[data-theme='dark'] .notification-icon > span {
   border-color: var(--dark-card);
+}
+html[data-theme='dark']
+  :is(
+    .post-stats,
+    .post-stats button,
+    .post-header .user-link small,
+    .comment-bubble small,
+    .feed-heading > span,
+    .feed-tabs button,
+    .composer-bottom .text-button,
+    .composer-count,
+    .site-footer span,
+    .section-title
+  ) {
+  color: var(--dark-muted);
+}
+html[data-theme='dark'] .post-actions > button {
+  color: var(--dark-muted);
+  background: transparent;
+}
+html[data-theme='dark'] .post-actions > button.liked {
+  color: var(--dark-blue);
+}
+html[data-theme='dark']
+  :is(
+    .post-actions > button:hover,
+    .feed-tabs button:hover,
+    .dropdown button:hover,
+    .icon-button:hover,
+    .secondary:hover:not(:disabled),
+    .conversation:hover
+  ) {
+  background: var(--dark-input);
+  color: var(--dark-text);
+}
+html[data-theme='dark'] .feed-tabs button.active {
+  color: var(--dark-blue);
+}
+html[data-theme='dark'] .composer-input textarea:focus {
+  background: var(--dark-input);
 }
 html[data-theme='dark']
   :is(

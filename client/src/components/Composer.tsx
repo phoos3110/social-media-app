@@ -20,7 +20,7 @@ export default function Composer({
   const input = useRef<HTMLInputElement>(null);
   return (
     <form
-      className="card composer"
+      className={`card composer ${content || asset ? 'has-draft' : ''}`}
       onSubmit={async (event) => {
         event.preventDefault();
         if ((!content.trim() && !asset) || busy || uploading) return;
@@ -43,9 +43,10 @@ export default function Composer({
       <div className="composer-input">
         <Avatar user={user} />
         <textarea
+          rows={1}
           disabled={busy}
           aria-label="Nội dung bài viết"
-          placeholder={`${user.name.split(' ').pop()} ơi, hôm nay bạn có gì muốn chia sẻ?`}
+          placeholder={`${user.name.split(' ').pop()} ơi, bạn đang nghĩ gì?`}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           maxLength={5000}
@@ -92,7 +93,7 @@ export default function Composer({
           onClick={() => input.current?.click()}
         >
           {uploading ? <LoaderCircle className="spin" size={18} /> : <ImagePlus size={18} />}
-          <span>{uploading ? 'Đang tải ảnh…' : 'Ảnh / Hình ảnh'}</span>
+          <span>{uploading ? 'Đang tải ảnh…' : 'Ảnh'}</span>
         </button>
         <span className="composer-count">
           {content.length > 4500 ? `${content.length}/5000` : 'Một điều nhỏ cũng đáng chia sẻ'}

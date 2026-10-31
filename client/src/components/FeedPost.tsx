@@ -224,7 +224,7 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
               {post.likeCount} lượt thích
             </>
           ) : (
-            'Hãy là người đầu tiên thích bài viết'
+            'Chưa có lượt thích'
           )}
         </span>
         <button

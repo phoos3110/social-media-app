@@ -30,6 +30,12 @@
 }
 /* Loaded after index.css so shared component structure stays reusable. */
 :root {
+  --po-surface: #fff;
+  --po-input: #f0f2f5;
+  --po-hover: #e9ebee;
+  --po-text: #1c1e21;
+  --po-muted: #65676b;
+  --po-border: #e4e6eb;
   color: #1c1e21;
   background: #f0f2f5;
   font-size: 15px;
@@ -89,7 +95,7 @@ textarea:focus {
 }
 .card {
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   box-shadow: 0 1px 2px #00000026;
 }
 .brand {
@@ -232,6 +238,9 @@ textarea:focus {
 }
 .topbar-right {
   gap: 9px;
+}
+.topbar-right > .mobile-search-toggle {
+  display: none;
 }
 .topbar-right > .icon-button {
   background: #e4e6eb;
@@ -395,23 +404,35 @@ textarea:focus {
   padding: 16px 16px 0;
 }
 .composer-input {
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
 }
 .composer-input textarea {
   background: #f0f2f5;
   border-radius: 22px;
   padding: 12px 17px;
-  min-height: 76px;
+  min-height: 44px;
+  height: 44px;
   font-size: 15px;
-  resize: vertical;
+  resize: none;
+  line-height: 20px;
+  transition: min-height 0.18s;
+}
+.composer:focus-within .composer-input,
+.composer.has-draft .composer-input {
+  align-items: flex-start;
+}
+.composer:focus-within textarea,
+.composer.has-draft textarea {
+  min-height: 100px;
+  border-radius: 16px;
 }
 .composer-input textarea:focus {
   background: #e9ebee;
 }
 .composer-bottom {
-  margin-top: 14px;
-  padding: 12px 0;
+  margin-top: 12px;
+  padding: 8px 0;
   border-color: #e4e6eb;
 }
 .composer-bottom .text-button {
@@ -433,7 +454,8 @@ textarea:focus {
   font-size: 10px;
 }
 .feed-heading {
-  margin: 18px 0 14px;
+  margin: 12px 0;
+  min-height: 44px;
 }
 .feed-heading > span {
   color: #65676b;
@@ -446,7 +468,7 @@ textarea:focus {
   color: #65676b;
   font-size: 13px;
   padding: 10px 12px;
-  border-radius: 7px;
+  border-radius: 22px;
 }
 .feed-tabs button.active {
   color: #1877f2;
@@ -456,7 +478,7 @@ textarea:focus {
   background: #e4e6eb;
 }
 .feed-list {
-  gap: 16px;
+  gap: 12px;
 }
 .feed-post {
   padding: 17px 17px 0;
@@ -476,7 +498,7 @@ textarea:focus {
   color: #050505;
   font-size: 15px;
   line-height: 1.65;
-  margin: 15px 0;
+  margin: 12px 0;
 }
 .post-image-link {
   margin: 15px -17px 0;
@@ -505,14 +527,15 @@ textarea:focus {
   padding: 4px 0;
 }
 .post-actions > button {
-  color: #65676b;
+  color: var(--po-muted);
+  background: transparent;
   font-size: 14px;
   font-weight: 600;
   padding: 11px;
   border-radius: 5px;
 }
 .post-actions > button:hover {
-  background: #f0f2f5;
+  background: var(--po-hover);
 }
 .post-actions > button.liked {
   color: #1877f2;
@@ -977,16 +1000,15 @@ textarea:focus {
   }
   .topbar {
     height: 56px;
-    padding: 0 14px;
+    padding: 0 12px;
   }
   .topbar .brand {
-    font-size: 28px;
-    gap: 8px;
+    font-size: 32px;
+    letter-spacing: -1.4px;
+    gap: 0;
   }
   .topbar .brand-mark {
-    width: 35px;
-    height: 35px;
-    font-size: 33px;
+    display: none;
   }
   .header-search,
   .header-nav {
@@ -998,10 +1020,16 @@ textarea:focus {
     height: 36px;
   }
   .topbar-right {
-    gap: 7px;
+    gap: 8px;
+  }
+  .topbar-right > .mobile-search-toggle {
+    display: inline-flex;
+  }
+  .topbar-right > .install-app {
+    display: none;
   }
   .workspace {
-    padding: 18px 12px 24px;
+    padding: 14px 12px 24px;
   }
   .page-heading {
     margin: 0 4px 16px;
@@ -1014,15 +1042,50 @@ textarea:focus {
     max-width: none;
   }
   .app-layout[data-view='feed'] .main-column > .search-field {
+    display: none;
+  }
+  .app-layout[data-view='feed'].search-open .main-column > .search-field {
     display: flex;
+    margin: 12px;
+  }
+  .app-layout[data-view='feed'] .page-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .app-layout[data-view='feed'] .workspace {
+    padding: 0 0 28px;
+  }
+  .app-layout[data-view='feed'] .feed-post,
+  .app-layout[data-view='feed'] .composer {
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app-layout[data-view='feed'] .feed-list {
+    gap: 8px;
+  }
+  .app-layout[data-view='feed'] .feed-heading {
+    margin: 0;
+    padding: 8px 12px;
+    background: var(--po-surface);
+    border-top: 1px solid var(--po-border);
+    border-bottom: 8px solid var(--po-input);
+  }
+  .feed-heading > span {
+    display: none;
   }
   .composer {
-    padding: 13px 13px 0;
+    padding: 12px 12px 0;
   }
   .composer-input textarea {
-    font-size: 14px;
-    min-height: 70px;
-    padding: 11px 13px;
+    font-size: 16px;
+    min-height: 42px;
+    height: 42px;
+    padding: 10px 14px;
   }
   .composer-bottom .text-button {
     font-size: 12px;
@@ -1046,10 +1109,10 @@ textarea:focus {
     font-size: 14px;
   }
   .post-header .user-link small {
-    font-size: 11px;
+    font-size: 12px;
   }
   .post-content {
-    font-size: 14px;
+    font-size: 15px;
   }
   .post-image-link {
     margin-left: -14px;
@@ -1057,10 +1120,15 @@ textarea:focus {
   }
   .post-stats,
   .post-stats button {
-    font-size: 11px;
+    font-size: 12px;
   }
   .post-actions > button {
     font-size: 13px;
+  }
+  .search-field input,
+  .comment-form input,
+  .message-form input {
+    font-size: 16px;
   }
   .mobile-nav {
     position: fixed;

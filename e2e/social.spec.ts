@@ -1,5 +1,47 @@
 import { test, expect, type Page } from '@playwright/test';
 
+test('compact feed keeps mobile search usable and dark actions readable', async ({ page }) => {
+  await register(page, 'Phương Nguyễn', 'phuong_layout');
+  await page
+    .getByLabel('Nội dung bài viết', { exact: true })
+    .fill('Một buổi chiều thật nhẹ nhàng. Bạn có điều gì vui hôm nay?');
+  await page.getByRole('button', { name: 'Đăng bài', exact: true }).click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => localStorage.setItem('nhip-theme', value), theme);
+    await page.reload();
+    for (const width of [320, 393, 768, 1440]) {
+      await page.setViewportSize({ width, height: 852 });
+      const post = page
+        .locator('article')
+        .filter({ hasText: 'Một buổi chiều thật nhẹ nhàng.' })
+        .first();
+      await expect(post).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      if (width < 600) {
+        const composer = await page.locator('.composer').boundingBox();
+        expect(composer!.height).toBeLessThan(160);
+        await page.getByRole('button', { name: 'Tìm kiếm bài viết', exact: true }).click();
+        await page
+          .getByRole('searchbox', { name: 'Tìm kiếm', exact: true })
+          .fill('khongtontai_layout');
+        await expect(page.getByRole('heading', { name: 'Chưa tìm thấy câu chuyện' })).toBeVisible();
+        await page.getByRole('button', { name: 'Tìm kiếm bài viết', exact: true }).click();
+        await expect(post).toBeVisible();
+      }
+      const like = post.getByRole('button', { name: 'Thích', exact: true });
+      await like.hover();
+      if (theme === 'dark') {
+        await expect(like).toHaveCSS('background-color', 'rgb(58, 59, 60)');
+        await expect(like).toHaveCSS('color', 'rgb(228, 230, 235)');
+      }
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: `test-results/feed-${theme}-${width}.png`, fullPage: true });
+    }
+  }
+});
+
 async function register(page: Page, name: string, username: string) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Đăng ký', exact: true }).click();

@@ -48,6 +48,7 @@ export default function App() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [people, setPeople] = useState<User[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [noticePage, setNoticePage] = useState(1);
   const [moreNotices, setMoreNotices] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -294,7 +295,7 @@ export default function App() {
     profile: 'Trang cá nhân',
   }[view];
   return (
-    <div className="app-layout" data-view={view}>
+    <div className={`app-layout ${mobileSearchOpen ? 'search-open' : ''}`} data-view={view}>
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-left">
@@ -339,6 +340,18 @@ export default function App() {
               ))}
           </nav>
           <div className="topbar-right">
+            <button
+              className="icon-button mobile-search-toggle"
+              aria-label="Tìm kiếm bài viết"
+              aria-expanded={mobileSearchOpen}
+              onClick={() => {
+                navigate('feed');
+                setMobileSearchOpen((open) => !open);
+                if (mobileSearchOpen) setSearch('');
+              }}
+            >
+              {mobileSearchOpen ? <X size={20} /> : <Search size={20} />}
+            </button>
             <InstallApp />
             <ThemeToggle />
             <button
