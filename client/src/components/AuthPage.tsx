@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import type { User } from '../types/social';
 import { Brand } from './ui';
 import { ThemeToggle } from './Theme';
+import { InstallApp } from './Pwa';
 
 export default function AuthPage({ onAuth }: { onAuth: (user: User) => void }) {
   const [register, setRegister] = useState(false);
@@ -13,6 +14,7 @@ export default function AuthPage({ onAuth }: { onAuth: (user: User) => void }) {
   return (
     <main className="auth-layout">
       <ThemeToggle className="auth-theme-toggle" />
+      <InstallApp className="auth-install-app" />
       <section className="auth-story">
         <Brand />
         <div className="auth-copy">

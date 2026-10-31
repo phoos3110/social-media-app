@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import AuthPage from './components/AuthPage';
+import { InstallApp } from './components/Pwa';
 import { ThemeToggle } from './components/Theme';
 import { useConfirm } from './lib/confirmation';
 import Composer from './components/Composer';
@@ -337,6 +338,7 @@ export default function App() {
               ))}
           </nav>
           <div className="topbar-right">
+            <InstallApp />
             <ThemeToggle />
             <button
               className="icon-button"

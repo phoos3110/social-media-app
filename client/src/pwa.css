@@ -1,0 +1,79 @@
+.auth-install-app {
+  position: fixed;
+  right: 72px;
+  top: 18px;
+  z-index: 50;
+  background: #e4e6eb;
+  color: #1c1e21;
+  width: 40px;
+  height: 40px;
+}
+html[data-theme='dark'] .auth-install-app {
+  background: var(--dark-input);
+  color: var(--dark-text);
+}
+.pwa-status {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px;
+  border: 1px solid var(--dark-border, #dddfe2);
+  border-radius: 12px;
+  background: var(--dark-card, #fff);
+  color: var(--dark-text, #1c1e21);
+  box-shadow: 0 4px 25px #0003;
+  font-size: 13px;
+}
+.pwa-status .primary {
+  font-size: 12px;
+  padding: 9px 12px;
+}
+@media (max-width: 800px) {
+  .topbar-right > [aria-label='Mở tin nhắn'] {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .pwa-status {
+    gap: 9px;
+    padding: 12px;
+    font-size: 12px;
+  }
+}
+@media (display-mode: standalone) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .topbar {
+    height: calc(64px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  .app-main {
+    padding-top: calc(64px + env(safe-area-inset-top));
+  }
+  .auth-theme-toggle,
+  .auth-install-app {
+    top: calc(18px + env(safe-area-inset-top));
+  }
+}
+@media (display-mode: standalone) and (max-width: 600px) {
+  .topbar {
+    height: calc(56px + env(safe-area-inset-top));
+  }
+  .mobile-nav {
+    top: calc(56px + env(safe-area-inset-top));
+  }
+  .app-main {
+    padding-top: calc(106px + env(safe-area-inset-top));
+  }
+  .chat-layout {
+    height: calc(100dvh - 226px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+}

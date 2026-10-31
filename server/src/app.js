@@ -51,6 +51,10 @@ export function createApp(db, { testing = false } = {}) {
   const secureCookies = production && process.env.COOKIE_SECURE !== 'false';
   if (process.env.TRUST_PROXY_HOPS === '1') app.set('trust proxy', 1);
   app.disable('x-powered-by');
+  app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
   app.use(
     helmet({
       contentSecurityPolicy: {

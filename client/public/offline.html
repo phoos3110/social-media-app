@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1877f2" />
+    <title>Po — Bạn đang ngoại tuyến</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+        background: #f0f2f5;
+        color: #1c1e21;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        box-sizing: border-box;
+        padding: 24px;
+      }
+      main {
+        max-width: 380px;
+        text-align: center;
+      }
+      img {
+        width: 80px;
+        height: 80px;
+        border-radius: 20px;
+      }
+      h1 {
+        font-size: 25px;
+        margin: 24px 0 12px;
+      }
+      p {
+        color: #65676b;
+        line-height: 1.7;
+        margin: 0 0 26px;
+      }
+      a {
+        display: inline-block;
+        background: #1877f2;
+        color: white;
+        padding: 13px 25px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      a:focus-visible {
+        outline: 3px solid #75b6ff;
+        outline-offset: 4px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #18191a;
+          color: #e4e6eb;
+        }
+        p {
+          color: #b0b3b8;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/po-192.png" alt="Po" />
+      <h1>Bạn đang ngoại tuyến</h1>
+      <p>
+        Kết nối Internet để xem bài viết và trò chuyện. Po không lưu tài khoản, bài viết hoặc tin
+        nhắn vào bộ nhớ ngoại tuyến.
+      </p>
+      <a href="/">Thử kết nối lại</a>
+    </main>
+  </body>
+</html>

@@ -124,6 +124,14 @@ docker-tests/         Kiểm thử stack Docker
 e2e/                  Kiểm thử trình duyệt độc lập
 ```
 
+## Cài Po dưới dạng PWA
+
+Sau khi triển khai qua HTTPS, trên iPhone mở Po bằng Safari, chọn Chia sẻ → Thêm vào Màn hình chính → Thêm. Trên trình duyệt hỗ trợ cài ứng dụng, nút **Cài Po** sẽ mở hộp thoại cài đặt. Khi đã cài, Po mở trong cửa sổ riêng.
+
+PWA có biểu tượng ứng dụng, hỗ trợ vùng an toàn màn hình và trang báo mất kết nối. Đăng nhập, bài viết và chat vẫn cần mạng. Service worker chỉ lưu tài nguyên tĩnh; không cache API, ảnh upload, Socket.IO hoặc HTML chứa phiên làm việc. Khi có bản cập nhật, Po hỏi trước khi tải lại để tránh mất nội dung đang nhập. Thông báo đẩy khi đóng ứng dụng chưa được triển khai.
+
+Chạy `npm run test:pwa` khi stack Docker đang hoạt động để kiểm tra manifest, biểu tượng, bộ nhớ cache, mất mạng/kết nối lại, hướng dẫn cài iPhone và cơ chế cập nhật. Đây là kiểm tra Chrome với mô phỏng iPhone; vẫn cần thử trên Safari iPhone thật sau khi triển khai HTTPS.
+
 ## Triển khai public
 
 Compose hiện dành cho local: HTTP, mật khẩu database mặc định và cookie không có Secure. Trước khi public, cần HTTPS, domain trong `CLIENT_ORIGIN`, `COOKIE_SECURE=true`, mật khẩu riêng và cơ chế sao lưu. Dùng PostgreSQL cloud và Cloudinary nếu nền tảng không có ổ đĩa bền vững.

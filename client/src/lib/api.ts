@@ -14,6 +14,7 @@ export async function api<T>(
   const multipart = body instanceof FormData;
   const response = await fetch(`/api${path}`, {
     method,
+    cache: 'no-store',
     credentials: 'include',
     signal,
     headers: body && !multipart ? { 'Content-Type': 'application/json' } : undefined,
