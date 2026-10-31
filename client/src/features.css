@@ -132,6 +132,389 @@
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+.account-panel {
+  margin-top: 20px;
+  border-top: 1px solid var(--po-border);
+  padding-top: 18px;
+}
+.account-panel h3 {
+  font-size: 15px;
+  font-weight: 650;
+  margin-bottom: 12px;
+}
+.account-panel .account-id {
+  font-size: 11px;
+  color: var(--po-muted);
+  overflow-wrap: anywhere;
+}
+.account-panel p {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.account-form {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0;
+}
+.account-form label {
+  font-size: 13px;
+  gap: 7px;
+}
+.account-form input,
+.account-form textarea {
+  width: 100%;
+  font-size: 16px;
+}
+.account-form textarea {
+  min-height: 85px;
+}
+.account-status {
+  color: #249b70;
+}
+.settings-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+.settings-nav button {
+  background: var(--po-input);
+  color: var(--po-muted);
+  padding: 9px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+.settings-nav button.active {
+  background: #263951;
+  color: #75b6ff;
+}
+.saved-link {
+  width: 100%;
+  margin-top: 12px;
+}
+.account-user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+  font-size: 13px;
+}
+.account-user > span:not(.avatar) {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-user .primary,
+.account-user .secondary {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.report-card {
+  border: 1px solid var(--po-border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 10px;
+}
+.report-card .flex-row {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.report-card .secondary {
+  font-size: 12px;
+  padding: 8px 10px;
+}
+.report-evidence {
+  margin: 10px 0;
+  padding: 12px;
+  border-left: 3px solid #1877f2;
+  background: var(--po-input);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.report-media {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.report-media :is(img, video) {
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.account-link-page {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  gap: 24px;
+  padding: 24px;
+  background: var(--po-input);
+}
+.account-link-card {
+  background: var(--po-surface);
+  color: var(--po-text);
+  width: min(420px, calc(100vw - 48px));
+  padding: 24px;
+}
+.account-link-card h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+.forgot-password {
+  margin: 12px auto;
+}
+.post-tools {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  gap: 2px;
+}
+.post-tools .icon-button {
+  width: 32px;
+  height: 32px;
+}
+.post-tools .saved,
+.comment-meta .liked {
+  color: #1877f2;
+}
+.post-stats .likers-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+}
+.post-stats .likers-link:hover {
+  text-decoration: underline;
+}
+.post-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 12px -17px 0;
+}
+.post-media-grid.media-count-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.post-media-grid .post-image-link {
+  display: block;
+  min-width: 0;
+  margin: 0;
+}
+.post-media-grid .post-image {
+  width: 100%;
+  height: 100%;
+  max-height: 560px;
+  object-fit: cover;
+  border-radius: 0;
+}
+.post-media-grid.media-count-1 .post-image {
+  object-fit: contain;
+}
+.post-video {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-height: 560px;
+  background: #111;
+}
+.composer-assets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.composer-assets .composer-preview {
+  min-width: 0;
+  margin: 0;
+}
+.composer-assets video,
+.composer-assets img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.composer-assets .composer-preview .icon-button {
+  top: 6px;
+  right: 6px;
+}
+.shared-post {
+  border: 1px solid var(--po-border);
+  border-radius: 10px;
+  margin: 14px 0;
+  padding: 14px;
+  overflow: hidden;
+}
+.shared-post > p {
+  line-height: 1.6;
+  font-size: 14px;
+  margin-top: 12px;
+  white-space: pre-wrap;
+}
+.shared-post .post-media-grid {
+  margin: 12px -14px -14px;
+}
+.profile-cover {
+  position: relative;
+  overflow: hidden;
+}
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cover-upload {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  background: #0009;
+  color: white;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.private-label {
+  color: var(--po-muted);
+  font-size: 12px;
+  margin: 8px 0;
+}
+.contact-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 43px;
+  width: 43px;
+  height: 43px;
+}
+.online-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--po-surface);
+  border-radius: 50%;
+  background: #31a24c;
+}
+.comment-replies.flat-replies {
+  margin-left: 0;
+  padding-left: 6px;
+}
+.comment-highlight .comment-bubble {
+  outline: 2px solid #1877f2;
+  outline-offset: 2px;
+}
+.comment-edit textarea {
+  width: 100%;
+  min-height: 70px;
+  font-size: 16px;
+}
+.message-compose-preview {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--po-border);
+  background: var(--po-surface);
+}
+.message-compose-preview > div {
+  position: relative;
+  background: var(--po-input);
+  padding: 10px 40px 10px 12px;
+  border-radius: 10px;
+  min-width: 0;
+}
+.message-compose-preview .icon-button {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 28px;
+  height: 28px;
+}
+.message-compose-preview img {
+  height: 65px;
+  max-width: 100px;
+  object-fit: cover;
+}
+.message-compose-preview p {
+  max-height: 45px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.message-compose-preview strong {
+  font-size: 12px;
+}
+.chat-image {
+  display: block;
+  max-width: min(280px, 60vw);
+  max-height: 350px;
+  border-radius: 14px;
+}
+.message-quote {
+  border-left: 3px solid #75b6ff;
+  background: var(--po-input);
+  color: var(--po-muted);
+  padding: 8px 12px;
+  margin: 0 0 4px;
+  border-radius: 8px;
+  font-size: 12px;
+  max-width: min(350px, 65vw);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.message p.recalled-message {
+  background: transparent;
+  border: 1px solid var(--po-border);
+  font-style: italic;
+  color: var(--po-muted);
+}
+.message-tools {
+  display: flex;
+  gap: 3px;
+}
+.message-tools .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.typing-indicator {
+  font-size: 12px;
+  font-style: italic;
+  padding: 8px;
+  color: var(--po-muted);
+}
+@media (max-width: 600px) {
+  .post-media-grid {
+    margin-left: -14px;
+    margin-right: -14px;
+  }
+  .profile-buttons {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .account-user {
+    flex-wrap: wrap;
+  }
+  .post-actions > button {
+    gap: 5px;
+    padding: 10px 4px;
+    font-size: 12px;
+  }
+  .message-form {
+    padding: 10px;
+    gap: 6px;
+  }
+  .message-form .icon-button {
+    flex: 0 0 32px;
+  }
+}
 .post-actions > button.liked svg {
   animation: like-pop 0.2s ease-out;
 }

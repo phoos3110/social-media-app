@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, Camera, MessageCircle, Pencil } from 'lucide-react';
 import type { User } from '../types/social';
 import { api, uploadImage } from '../lib/api';
-import { Avatar, Loading } from './ui';
+import { Avatar, Loading, Empty } from './ui';
 import { useConfirm } from '../lib/confirmation';
 import Relationships from './Relationships';
+import { ReportButton } from './PostFeatures';
 
 export default function Profile({
   userId,
@@ -14,20 +15,23 @@ export default function Profile({
   onFollow,
   onError,
   onProfile,
+  onBlocked,
 }: {
   userId: string;
   me: User;
   onMe: (user: User) => void;
   onChat: (user: User) => void;
-  onFollow: (user: User) => Promise<void>;
+  onFollow: (user: User) => Promise<{ following: boolean; requested?: boolean }>;
   onError: (message: string) => void;
   onProfile: (id: string) => void;
+  onBlocked: () => void;
 }) {
   const confirm = useConfirm();
   const actionLock = useRef(false);
   const [dirty, setDirty] = useState(false);
   const [relationship, setRelationship] = useState<'followers' | 'following' | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [avatar, setAvatar] = useState<{ id: string; url: string } | null>(null);
@@ -51,14 +55,49 @@ export default function Profile({
     api<{ user: User }>(`/users/${userId}`, 'GET', undefined, controller.signal)
       .then((data) => setUser(data.user))
       .catch((e) => {
-        if (e.name !== 'AbortError') onError(e.message);
+        if (e.name !== 'AbortError') {
+          setError(e.message);
+          onError(e.message);
+        }
       });
     return () => controller.abort();
   }, [userId, onError]);
-  if (!user) return <Loading />;
+  if (!user) return error ? <Empty title="Hồ sơ không khả dụng" text={error} /> : <Loading />;
   return (
     <section className="card profile-card">
-      <div className="profile-cover" aria-hidden="true" />
+      <div className="profile-cover">
+        {user.cover && (
+          <img className="cover-image" src={user.cover} alt={`Ảnh bìa của ${user.name}`} />
+        )}{' '}
+        {user.id === me.id && (
+          <label className="cover-upload">
+            <Camera size={16} />
+            Đổi ảnh bìa
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/avif"
+              hidden
+              disabled={busy}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setBusy(true);
+                try {
+                  const asset = await uploadImage(file);
+                  const data = await api<{ cover: string }>('/account/cover', 'PATCH', {
+                    uploadId: asset.id,
+                  });
+                  setUser({ ...user, cover: data.cover });
+                } catch (e) {
+                  onError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+          </label>
+        )}
+      </div>
       <div className="profile-body">
         <div className="profile-top">
           <Avatar user={{ ...user, avatar: avatar?.url || user.avatar }} size="lg" />
@@ -100,7 +139,18 @@ export default function Profile({
                       followers: Math.max(0, (user.followers || 0) + (user.isFollowing ? -1 : 1)),
                     });
                     try {
-                      await onFollow(user);
+                      const result = await onFollow(user);
+                      setUser({
+                        ...previous,
+                        isFollowing: result.following,
+                        requested: result.requested,
+                        followers: Math.max(
+                          0,
+                          (previous.followers || 0) +
+                            Number(result.following) -
+                            Number(Boolean(previous.isFollowing)),
+                        ),
+                      });
                     } catch (e) {
                       setUser(previous);
                       onError((e as Error).message);
@@ -110,7 +160,38 @@ export default function Profile({
                     }
                   }}
                 >
-                  {user.isFollowing ? 'Đang theo dõi' : 'Theo dõi'}
+                  {user.isFollowing
+                    ? 'Đang theo dõi'
+                    : user.requested
+                      ? 'Đã gửi yêu cầu'
+                      : 'Theo dõi'}
+                </button>
+                <ReportButton userId={user.id} />
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (
+                      !(await confirm({
+                        title: `Chặn ${user.name}?`,
+                        message: 'Hai người sẽ không thể xem bài hoặc nhắn tin cho nhau.',
+                        confirmLabel: 'Chặn',
+                        danger: true,
+                      }))
+                    )
+                      return;
+                    setBusy(true);
+                    try {
+                      await api(`/users/${user.id}/block`, 'PUT', { blocked: true });
+                      onBlocked();
+                    } catch (e) {
+                      onError((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Chặn
                 </button>
               </>
             )}
@@ -196,6 +277,7 @@ export default function Profile({
         ) : (
           <>
             <h2>{user.name}</h2>
+            {user.isPrivate && <p className="private-label">Tài khoản riêng tư</p>}
             <p className="muted">@{user.username}</p>
             {user.bio && <p className="profile-bio">{user.bio}</p>}
             <div className="profile-meta">

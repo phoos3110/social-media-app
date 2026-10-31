@@ -34,6 +34,15 @@ export async function uploadImage(file: File) {
   form.append('image', file);
   return api<{ id: string; url: string }>('/uploads', 'POST', form);
 }
+export async function uploadMedia(file: File) {
+  if (!file.type.startsWith('video/'))
+    return { ...(await uploadImage(file)), kind: 'image' as const };
+  if (!['video/mp4', 'video/webm'].includes(file.type) || file.size > 25 * 1024 * 1024)
+    throw new Error('Video phải là MP4/WebM, tối đa 25 MB.');
+  const form = new FormData();
+  form.append('video', file);
+  return api<{ id: string; url: string; kind: 'video' }>('/videos', 'POST', form);
+}
 export function timeAgo(date: string) {
   const seconds = Math.max(0, (Date.now() - new Date(date).getTime()) / 1000);
   if (seconds < 60) return 'Vừa xong';

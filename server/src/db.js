@@ -4,16 +4,17 @@ import { PGlite } from '@electric-sql/pglite';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { migrateNotifications } from './migrations.js';
+import { migrateFeatures } from './schema-features.js';
 
-export async function createDatabase({ memory = false } = {}) {
+export async function createDatabase({ memory = false, embeddedPath } = {}) {
   let driver;
-  if (!memory && process.env.DATABASE_URL) {
+  if (!memory && !embeddedPath && process.env.DATABASE_URL) {
     driver = new pg.Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
     });
   } else {
-    const directory = fileURLToPath(new URL('../data/postgres', import.meta.url));
+    const directory = embeddedPath || fileURLToPath(new URL('../data/postgres', import.meta.url));
     if (!memory) await mkdir(directory, { recursive: true });
     driver = new PGlite(memory ? undefined : directory);
   }
@@ -70,5 +71,6 @@ export async function createDatabase({ memory = false } = {}) {
   ];
   for (const sql of statements) await db.query(sql);
   await migrateNotifications(db);
+  await migrateFeatures(db);
   return db;
 }

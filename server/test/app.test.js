@@ -154,7 +154,9 @@ test('image decoding and upload ownership', async () => {
     .png()
     .toBuffer();
   const upload = await alice.post('/api/uploads').attach('image', image, 'real.png').expect(201);
-  assert.match(upload.body.url, /^\/uploads\/.*\.webp$/);
+  assert.match(upload.body.url, /^\/api\/media\/[a-f0-9-]+$/);
+  await request(app).get(upload.body.url).expect(401);
+  await alice.get(upload.body.url).expect(200);
   await bob.post('/api/posts').send({ content: 'stolen', uploadId: upload.body.id }).expect(400);
   const post = await alice
     .post('/api/posts')
@@ -329,8 +331,8 @@ test('replies stay inside their post, notify the parent author, paginate and cas
     .expect(404);
   await alice
     .post(`/api/posts/${targetPost}/comments`)
-    .send({ content: 'Not a root', parentId: reply.id })
-    .expect(404);
+    .send({ content: 'Nested reply', parentId: reply.id })
+    .expect(201);
   const roots = (await alice.get(`/api/posts/${targetPost}/comments`).expect(200)).body.comments;
   assert.equal(roots.length, 1);
   assert.equal(roots[0].replyCount, 1);

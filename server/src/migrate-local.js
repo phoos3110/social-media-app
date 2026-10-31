@@ -14,6 +14,8 @@ const backupPath = fileURLToPath(
 await mkdir(fileURLToPath(new URL('../data/backups', import.meta.url)), { recursive: true });
 await cp(sourcePath, backupPath, { recursive: true, errorOnExist: true, force: false });
 console.log('Created a backup of the embedded database under server/data/backups.');
+const upgraded = await createDatabase({ embeddedPath: sourcePath });
+await upgraded.close();
 const source = new PGlite(sourcePath);
 const schema = await createDatabase();
 await schema.close();
@@ -28,6 +30,14 @@ const tables = [
   'follows',
   'messages',
   'notifications',
+  'account_tokens',
+  'blocks',
+  'follow_requests',
+  'bookmarks',
+  'comment_likes',
+  'reports',
+  'push_subscriptions',
+  'media_cleanup',
 ];
 try {
   await target.connect();
@@ -42,14 +52,35 @@ try {
   }
   for (const table of tables) {
     const { rows } = await source.query(`SELECT * FROM ${table}`);
+    const deferred =
+      table === 'posts'
+        ? 'shared_post_id'
+        : table === 'comments'
+          ? 'parent_id'
+          : table === 'messages'
+            ? 'reply_to_id'
+            : null;
     for (const row of rows) {
       const columns = Object.keys(row);
       const placeholders = columns.map((_, index) => `$${index + 1}`);
       await target.query(
         `INSERT INTO ${table} (${columns.map((c) => `"${c}"`).join(',')}) VALUES (${placeholders.join(',')})`,
-        columns.map((c) => row[c]),
+        columns.map((c) =>
+          c === deferred
+            ? null
+            : ['media', 'subscription'].includes(c)
+              ? JSON.stringify(row[c])
+              : row[c],
+        ),
       );
     }
+    if (deferred)
+      for (const row of rows)
+        if (row[deferred])
+          await target.query(`UPDATE ${table} SET ${deferred}=$1 WHERE id=$2`, [
+            row[deferred],
+            row.id,
+          ]);
     const result = await target.query(`SELECT COUNT(*)::int AS count FROM ${table}`);
     if (result.rows[0].count !== rows.length) throw new Error(`Count mismatch for ${table}`);
     console.log(`${table}: ${rows.length} records verified`);

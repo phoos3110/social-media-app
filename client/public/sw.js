@@ -11,6 +11,38 @@ const STATIC_URLS = [
   '/icons/apple-touch-icon.png',
 ];
 
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data?.json() || {};
+  } catch {}
+  event.waitUntil(
+    self.registration.showNotification('Po', {
+      body: typeof payload.body === 'string' ? payload.body : 'Bạn có cập nhật mới.',
+      icon: '/icons/po-192.png',
+      badge: '/icons/po-192.png',
+      tag: payload.tag || 'po-update',
+      data: { url: payload.url || '/' },
+    }),
+  );
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      let url = new URL(event.notification.data?.url || '/', self.location.origin);
+      if (url.origin !== self.location.origin) url = new URL('/', self.location.origin);
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const window = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      if (window) {
+        await window.navigate(url.href);
+        return window.focus();
+      }
+      return self.clients.openWindow(url.href);
+    })(),
+  );
+});
+
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_URLS)));
   // Updates wait until users close the app or explicitly choose to update.

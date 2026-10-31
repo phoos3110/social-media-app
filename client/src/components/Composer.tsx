@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, LoaderCircle, Send, X } from 'lucide-react';
-import { api, uploadImage } from '../lib/api';
+import { api, uploadMedia } from '../lib/api';
+import { useDraft } from '../lib/drafts';
 import type { SocialPost, User } from '../types/social';
 import { Avatar } from './ui';
-
+type Asset = { id: string; url: string; kind: 'image' | 'video' };
 export default function Composer({
   user,
   onCreated,
@@ -13,29 +14,46 @@ export default function Composer({
   onCreated: (post: SocialPost) => void;
   onError: (message: string) => void;
 }) {
-  const [content, setContent] = useState('');
-  const [asset, setAsset] = useState<{ id: string; url: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [content, setContent] = useDraft('po:draft:' + user.id + ':post');
+  const [stored, setStored] = useDraft('po:draft:' + user.id + ':media');
+  let assets: Asset[] = [];
+  try {
+    const parsed = JSON.parse(stored || '[]');
+    if (Array.isArray(parsed))
+      assets = parsed
+        .filter(
+          (a) =>
+            typeof a.id === 'string' &&
+            typeof a.url === 'string' &&
+            ['image', 'video'].includes(a.kind),
+        )
+        .slice(0, 10);
+  } catch {}
+  const setAssets = (items: Asset[]) => setStored(JSON.stringify(items));
+  const [busy, setBusy] = useState(false),
+    [uploading, setUploading] = useState(false);
+  const lock = useRef(false);
   const input = useRef<HTMLInputElement>(null);
   return (
     <form
-      className={`card composer ${content || asset ? 'has-draft' : ''}`}
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if ((!content.trim() && !asset) || busy || uploading) return;
+      className={`card composer ${content || assets.length ? 'has-draft' : ''}`}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (lock.current || uploading || (!content.trim() && !assets.length)) return;
+        lock.current = true;
         setBusy(true);
         try {
-          const { post } = await api<{ post: SocialPost }>('/posts', 'POST', {
+          const data = await api<{ post: SocialPost }>('/posts', 'POST', {
             content,
-            uploadId: asset?.id,
+            uploadIds: assets.map((a) => a.id),
           });
-          onCreated(post);
+          onCreated(data.post);
           setContent('');
-          setAsset(null);
+          setStored('');
         } catch (e) {
           onError((e as Error).message);
         } finally {
+          lock.current = false;
           setBusy(false);
         }
       }}
@@ -46,38 +64,56 @@ export default function Composer({
           rows={1}
           disabled={busy}
           aria-label="Nội dung bài viết"
-          placeholder={`${user.name.split(' ').pop()} ơi, bạn đang nghĩ gì?`}
+          placeholder={user.name.split(' ').pop() + ' ơi, bạn đang nghĩ gì?'}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           maxLength={5000}
         />
       </div>
-      {asset && (
-        <div className="composer-preview">
-          <img src={asset.url} alt="Ảnh chuẩn bị đăng" />
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Bỏ ảnh"
-            disabled={busy || uploading}
-            onClick={() => setAsset(null)}
-          >
-            <X size={18} />
-          </button>
+      {assets.length > 0 && (
+        <div className="composer-assets">
+          {assets.map((asset) => (
+            <div className="composer-preview" key={asset.id}>
+              {asset.kind === 'video' ? (
+                <video src={asset.url} controls preload="metadata" />
+              ) : (
+                <img src={asset.url} alt="Ảnh chuẩn bị đăng" />
+              )}
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Bỏ ảnh"
+                disabled={busy || uploading}
+                onClick={() => setAssets(assets.filter((a) => a.id !== asset.id))}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
       <div className="composer-bottom">
         <input
           ref={input}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/avif"
+          accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm"
+          multiple
           hidden
+          disabled={busy || uploading}
           onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
+            const files = Array.from(e.target.files || []);
+            if (files.length + assets.length > 10) {
+              onError('Tối đa 10 ảnh/video cho một bài.');
+              e.target.value = '';
+              return;
+            }
             setUploading(true);
+            const updated = [...assets];
             try {
-              setAsset(await uploadImage(file));
+              for (const file of files) {
+                updated.push(await uploadMedia(file));
+                setAssets([...updated]);
+              }
             } catch (error) {
               onError((error as Error).message);
             } finally {
@@ -93,12 +129,15 @@ export default function Composer({
           onClick={() => input.current?.click()}
         >
           {uploading ? <LoaderCircle className="spin" size={18} /> : <ImagePlus size={18} />}
-          <span>{uploading ? 'Đang tải ảnh…' : 'Ảnh'}</span>
+          <span>{uploading ? 'Đang tải…' : 'Ảnh / Video'}</span>
         </button>
         <span className="composer-count">
-          {content.length > 4500 ? `${content.length}/5000` : 'Một điều nhỏ cũng đáng chia sẻ'}
+          {content.length > 4500 ? content.length + '/5000' : ''}
         </span>
-        <button className="primary" disabled={busy || uploading || (!content.trim() && !asset)}>
+        <button
+          className="primary"
+          disabled={busy || uploading || (!content.trim() && !assets.length)}
+        >
           {busy ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}Đăng bài
         </button>
       </div>

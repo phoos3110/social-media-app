@@ -117,6 +117,13 @@ try {
   );
 } finally {
   await browser.close();
+  if (users.length) {
+    const sources = await pool.query(
+      'SELECT source_url FROM uploads WHERE user_id=ANY($1::uuid[])',
+      [users],
+    );
+    for (const source of sources.rows) if (source.source_url) assets.push(source.source_url);
+  }
   if (users.length) await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [users]);
   await pool.end();
   for (const asset of assets) {

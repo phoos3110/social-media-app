@@ -219,7 +219,7 @@ test('two people can post, edit, comment, follow, receive notifications and chat
   await person.getByRole('button', { name: 'Theo dõi', exact: true }).click();
   await expect(person.getByRole('button', { name: 'Đang theo dõi', exact: true })).toBeVisible();
   await alice.locator('.topbar').getByRole('button', { name: 'Mở thông báo' }).click();
-  await expect(alice.locator('.notice')).toHaveCount(3);
+  await expect(alice.locator('.notice')).toHaveCount(2);
   await alice.getByRole('button', { name: 'Đọc tất cả' }).click();
   await expect(alice.getByText('0 thông báo chưa đọc')).toBeVisible();
   await person.getByRole('button', { name: 'Nhắn tin cho Alice Nguyen' }).click();

@@ -13,13 +13,17 @@
 ## Chức năng
 
 - Đăng ký, đăng nhập, đăng xuất; mật khẩu hash bcrypt và session cookie HttpOnly.
-- Hồ sơ, avatar, giới thiệu, theo dõi người dùng; mở danh sách người theo dõi/đang theo dõi từ trang cá nhân.
-- Đăng bài chữ/ảnh, sửa/xóa bài, like, bình luận và trả lời theo nhóm; câu trả lời có phân trang.
+- Hồ sơ, avatar, ảnh bìa, giới thiệu; danh sách theo dõi, tài khoản riêng tư, duyệt yêu cầu và chặn hai chiều.
+- Đăng bài chữ/nhiều ảnh/video, sửa/xóa, like, xem người đã like, lưu/chia sẻ; sửa/like bình luận và trả lời nhiều cấp có phân trang.
 - Bảng tin chung/đang theo dõi, tìm kiếm và phân trang.
-- Chat một-một, lịch sử tin nhắn và trạng thái chưa đọc.
+- Chat một-một, ảnh, trả lời/thu hồi tin, lịch sử, trạng thái online/đang nhập/đã xem và chưa đọc.
 - Thông báo real-time cho like, bình luận, trả lời và follow.
 - Xác nhận trước khi đăng xuất, xóa hoặc bỏ nội dung sửa chưa lưu.
-- Cài đặt gom chế độ sáng/tối, cài PWA và đăng xuất; dark mode lưu lựa chọn trên trình duyệt.
+- Cài đặt gom sáng/tối, PWA, đăng xuất, bảo mật tài khoản, quyền riêng tư, yêu cầu theo dõi và danh sách chặn.
+- Đổi/quên mật khẩu, xác minh/đổi email (cần Resend), xóa tài khoản và thu hồi phiên đăng nhập cũ.
+- Thông báo đẩy khi đóng app (cần cấu hình VAPID); thông báo bình luận mở đúng nhóm trả lời.
+- Báo cáo nội dung và quản trị viên xử lý báo cáo, gỡ bài, khóa/mở khóa tài khoản.
+- Bài viết, like, bình luận cập nhật qua Socket.IO; bản nháp lưu theo tài khoản trên từng thiết bị.
 - Like phản hồi ngay, tuần tự hóa các lần bấm nhanh và hoàn tác khi API lỗi. Bình luận và chat hiện trạng thái đang gửi, khôi phục nội dung nếu gửi thất bại.
 
 ## Chạy bằng Docker
@@ -129,7 +133,7 @@ e2e/                  Kiểm thử trình duyệt độc lập
 
 Sau khi triển khai qua HTTPS, trên iPhone mở Po bằng Safari, chọn Chia sẻ → Thêm vào Màn hình chính → Thêm. Trên trình duyệt hỗ trợ cài ứng dụng, nút **Cài Po** sẽ mở hộp thoại cài đặt. Khi đã cài, Po mở trong cửa sổ riêng.
 
-PWA có biểu tượng ứng dụng, hỗ trợ vùng an toàn màn hình và trang báo mất kết nối. Đăng nhập, bài viết và chat vẫn cần mạng. Service worker chỉ lưu tài nguyên tĩnh; không cache API, ảnh upload, Socket.IO hoặc HTML chứa phiên làm việc. Khi có bản cập nhật, Po hỏi trước khi tải lại để tránh mất nội dung đang nhập. Thông báo đẩy khi đóng ứng dụng chưa được triển khai.
+PWA có biểu tượng ứng dụng, hỗ trợ vùng an toàn màn hình và trang báo mất kết nối. Đăng nhập, bài viết và chat vẫn cần mạng. Service worker chỉ lưu tài nguyên tĩnh; không cache API, ảnh upload, Socket.IO hoặc HTML chứa phiên làm việc. Khi có bản cập nhật, Po hỏi trước khi tải lại để tránh mất nội dung đang nhập. Bật push trong Cài đặt sau khi operator cấu hình VAPID; xem DEPLOY-RENDER.md.
 
 Chạy `npm run test:pwa` khi stack Docker đang hoạt động để kiểm tra manifest, biểu tượng, bộ nhớ cache, mất mạng/kết nối lại, hướng dẫn cài iPhone và cơ chế cập nhật. Đây là kiểm tra Chrome với mô phỏng iPhone; vẫn cần thử trên Safari iPhone thật sau khi triển khai HTTPS.
 
@@ -139,7 +143,7 @@ Deploy miễn phí lên Render với Neon và Cloudinary: xem [hướng dẫn t�
 
 Compose hiện dành cho local: HTTP, mật khẩu database mặc định và cookie không có Secure. Trước khi public, cần HTTPS, domain trong `CLIENT_ORIGIN`, `COOKIE_SECURE=true`, mật khẩu riêng và cơ chế sao lưu. Dùng PostgreSQL cloud và Cloudinary nếu nền tảng không có ổ đĩa bền vững.
 
-Phiên bản hiện tại chạy một backend instance; nhiều instance cần adapter chia sẻ sự kiện Socket.IO và rate-limit store chung. Email verification, quên mật khẩu, chat nhóm, gọi video và moderation chưa được triển khai.
+Phiên bản hiện tại chạy một backend instance; nhiều instance cần adapter chia sẻ sự kiện Socket.IO và rate-limit store chung. Chat nhóm, gọi thoại/video, Stories/Reels và mã hóa đầu cuối chưa được triển khai. Email, push và quyền quản trị cần cấu hình môi trường trong DEPLOY-RENDER.md; chúng không tự kích hoạt chỉ bằng việc deploy code.
 
 ## Tài liệu tham khảo
 

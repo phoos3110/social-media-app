@@ -12,6 +12,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
+import { accountRoutes } from './accounts.js';
+import { communityRoutes, visiblePost } from './community.js';
+import { pushRoutes } from './push.js';
+import { messagingRoutes } from './messaging.js';
+import { videoRoutes } from './media.js';
+import { mediaAccess, storeAsset } from './media-access.js';
 
 const SESSION_AGE = 7 * 24 * 60 * 60 * 1000;
 const hash = (token) => createHash('sha256').update(token).digest('hex');
@@ -24,6 +30,8 @@ const publicUser = (u) => ({
   bio: u.bio,
   avatar: u.avatar,
   createdAt: u.created_at,
+  cover: u.cover || '',
+  isPrivate: Boolean(u.is_private),
 });
 class HttpError extends Error {
   constructor(status, message) {
@@ -32,7 +40,7 @@ class HttpError extends Error {
   }
 }
 
-export function createApp(db, { testing = false } = {}) {
+export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
   const app = express();
   const http = createServer(app);
   const allowedOrigins = (
@@ -64,6 +72,7 @@ export function createApp(db, { testing = false } = {}) {
           scriptSrc: ["'self'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
+          mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
           connectSrc: ["'self'"],
           objectSrc: ["'none'"],
           upgradeInsecureRequests: production ? [] : null,
@@ -109,7 +118,7 @@ export function createApp(db, { testing = false } = {}) {
     if (!token) return null;
     return one(
       `SELECT u.*,s.token_hash,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id
-      WHERE s.token_hash=$1 AND s.expires_at > NOW()`,
+      WHERE s.token_hash=$1 AND s.expires_at > NOW() AND u.banned=FALSE`,
       [hash(token)],
     );
   }
@@ -135,30 +144,51 @@ export function createApp(db, { testing = false } = {}) {
       path: '/',
     });
   }
-  async function notify(userId, actorId, kind, postId = null) {
-    if (userId === actorId) return;
+  async function notify(userId, actorId, kind, postId = null, commentId = null) {
+    if (
+      userId === actorId ||
+      (await one(
+        'SELECT 1 FROM blocks WHERE (user_id=$1 AND target_id=$2) OR (user_id=$2 AND target_id=$1)',
+        [userId, actorId],
+      ))
+    )
+      return;
     const inserted = await q(
-      'INSERT INTO notifications(id,user_id,actor_id,kind,post_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING id',
-      [randomUUID(), userId, actorId, kind, postId],
+      'INSERT INTO notifications(id,user_id,actor_id,kind,post_id,comment_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id',
+      [randomUUID(), userId, actorId, kind, postId, commentId],
     );
-    if (inserted.length) io.to(`user:${userId}`).emit('notification:new');
+    if (inserted.length) {
+      io.to(`user:${userId}`).emit('notification:new');
+      void push(userId, {
+        body: 'Bạn có thông báo mới trên Po.',
+        url: postId ? `/#post=${postId}${commentId ? '&comment=' + commentId : ''}` : '/',
+        tag: 'notice-' + inserted[0].id,
+      });
+    }
   }
-  async function requirePost(postId) {
-    const post = await one('SELECT * FROM posts WHERE id=$1', [id(postId)]);
+  async function requirePost(postId, viewerId) {
+    const post = await one(`SELECT p.* FROM posts p WHERE p.id=$2 AND ${visiblePost()}`, [
+      viewerId,
+      id(postId),
+    ]);
     if (!post) throw new HttpError(404, 'Bài viết không còn tồn tại.');
     return post;
   }
   const postSelect = `SELECT p.*,row_to_json(u) AS author,
     (SELECT COUNT(*)::int FROM likes l WHERE l.post_id=p.id) AS like_count,
     EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS is_liked,
-    (SELECT COUNT(*)::int FROM comments c WHERE c.post_id=p.id) AS comment_count
-    FROM posts p JOIN (SELECT id,username,name,bio,avatar,created_at FROM users) u ON u.id=p.user_id`;
+    (SELECT COUNT(*)::int FROM comments c WHERE c.post_id=p.id) AS comment_count,
+    EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id=p.id AND b.user_id=$1) AS is_saved
+    FROM posts p JOIN (SELECT id,username,name,bio,avatar,cover,is_private,banned,created_at FROM users) u ON u.id=p.user_id`;
   function postJSON(p) {
     return {
       id: p.id,
       author: publicUser(p.author),
       content: p.content,
       image: p.image,
+      media: p.media?.length ? p.media : p.image ? [{ url: p.image, kind: 'image' }] : [],
+      sharedPostId: p.shared_post_id,
+      isSaved: p.is_saved,
       createdAt: p.created_at,
       updatedAt: p.updated_at,
       likeCount: p.like_count,
@@ -206,7 +236,7 @@ export function createApp(db, { testing = false } = {}) {
     const input = z
       .object({ email: z.string().trim().toLowerCase().max(254), password: z.string().max(72) })
       .parse(req.body);
-    const user = await one('SELECT * FROM users WHERE email=$1', [input.email]);
+    const user = await one('SELECT * FROM users WHERE email=$1 AND banned=FALSE', [input.email]);
     // A valid fixed hash keeps password checking work similar for unknown accounts.
     const valid = await bcrypt.compare(
       input.password,
@@ -228,7 +258,22 @@ export function createApp(db, { testing = false } = {}) {
     res.json({ ok: true });
   });
   app.get('/api/auth/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
+  accountRoutes({ app, db, auth, authLimit, io, startSession, allowedOrigins, sendMail });
   app.use('/api', auth);
+  videoRoutes(app, db);
+  const legacyMedia = mediaAccess(app, db);
+  const { blocked, peer, changed } = communityRoutes({
+    app,
+    db,
+    io,
+    publicUser,
+    postSelect,
+    postJSON,
+    requirePost,
+    ownedImage,
+  });
+  const push = pushRoutes({ app, db, sendPush });
+  messagingRoutes({ app, db, io, peer, ownedImage, push });
 
   app.get('/api/users', async (req, res) => {
     const search = z
@@ -238,8 +283,9 @@ export function createApp(db, { testing = false } = {}) {
     const users = await q(
       `SELECT u.*,
       EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.following_id=u.id) AS is_following,
+      EXISTS(SELECT 1 FROM follow_requests r WHERE r.user_id=$1 AND r.target_id=u.id) AS requested,
       (SELECT COUNT(*)::int FROM follows f WHERE f.following_id=u.id) AS followers
-      FROM users u WHERE u.id <> $1 AND (u.name ILIKE $2 OR u.username ILIKE $2)
+      FROM users u WHERE u.id <> $1 AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$1 AND b.target_id=u.id) OR (b.target_id=$1 AND b.user_id=u.id)) AND (u.name ILIKE $2 OR u.username ILIKE $2)
       ORDER BY followers DESC,u.created_at DESC LIMIT 40`,
       [req.user.id, `%${search}%`],
     );
@@ -247,17 +293,20 @@ export function createApp(db, { testing = false } = {}) {
       users: users.map((u) => ({
         ...publicUser(u),
         isFollowing: u.is_following,
+        requested: u.requested,
         followers: u.followers,
       })),
     });
   });
   app.get('/api/users/:id', async (req, res) => {
+    await peer(req.user.id, id(req.params.id));
     const user = await one(
       `SELECT u.*,
       (SELECT COUNT(*)::int FROM follows WHERE following_id=u.id) AS followers,
       (SELECT COUNT(*)::int FROM follows WHERE follower_id=u.id) AS following,
       (SELECT COUNT(*)::int FROM posts WHERE user_id=u.id) AS post_count,
-      EXISTS(SELECT 1 FROM follows WHERE follower_id=$1 AND following_id=u.id) AS is_following
+      EXISTS(SELECT 1 FROM follows WHERE follower_id=$1 AND following_id=u.id) AS is_following,
+      EXISTS(SELECT 1 FROM follow_requests WHERE user_id=$1 AND target_id=u.id) AS requested
       FROM users u WHERE u.id=$2`,
       [req.user.id, id(req.params.id)],
     );
@@ -269,12 +318,24 @@ export function createApp(db, { testing = false } = {}) {
         following: user.following,
         postCount: user.post_count,
         isFollowing: user.is_following,
+        requested: user.requested,
       },
     });
   });
   app.get('/api/users/:id/:relationship', async (req, res, next) => {
     if (!['followers', 'following'].includes(req.params.relationship)) return next();
     const target = id(req.params.id);
+    await peer(req.user.id, target);
+    const owner = await one('SELECT is_private FROM users WHERE id=$1', [target]);
+    if (
+      owner?.is_private &&
+      target !== req.user.id &&
+      !(await one('SELECT 1 FROM follows WHERE follower_id=$1 AND following_id=$2', [
+        req.user.id,
+        target,
+      ]))
+    )
+      throw new HttpError(403, 'Danh sách thuộc tài khoản riêng tư.');
     if (!(await one('SELECT id FROM users WHERE id=$1', [target])))
       throw new HttpError(404, 'Không tìm thấy người dùng.');
     const page = z.coerce
@@ -287,7 +348,7 @@ export function createApp(db, { testing = false } = {}) {
     const rows = await q(
       `SELECT u.*, EXISTS(SELECT 1 FROM follows mine WHERE mine.follower_id=$1 AND mine.following_id=u.id) AS is_following
       FROM follows f JOIN users u ON u.id=f.${followers ? 'follower_id' : 'following_id'}
-      WHERE f.${followers ? 'following_id' : 'follower_id'}=$2 ORDER BY u.name,u.id LIMIT 31 OFFSET $3`,
+      WHERE f.${followers ? 'following_id' : 'follower_id'}=$2 AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$1 AND b.target_id=u.id) OR (b.target_id=$1 AND b.user_id=u.id)) ORDER BY u.name,u.id LIMIT 31 OFFSET $3`,
       [req.user.id, target, (page - 1) * 30],
     );
     res.json({
@@ -297,10 +358,12 @@ export function createApp(db, { testing = false } = {}) {
   });
   async function ownedImage(userId, uploadId) {
     if (!uploadId) return '';
-    const asset = await one('SELECT url FROM uploads WHERE id=$1 AND user_id=$2', [
+    const asset = await one('SELECT url,kind FROM uploads WHERE id=$1 AND user_id=$2', [
       id(uploadId),
       userId,
     ]);
+    if (asset && asset.kind !== undefined && asset.kind !== 'image')
+      throw new HttpError(400, 'Vui lòng chọn một ảnh hợp lệ.');
     if (!asset) throw new HttpError(400, 'Ảnh tải lên không hợp lệ.');
     return asset.url;
   }
@@ -325,6 +388,29 @@ export function createApp(db, { testing = false } = {}) {
     if (target === req.user.id) throw new HttpError(400, 'Bạn không thể tự theo dõi mình.');
     if (!(await one('SELECT id FROM users WHERE id=$1', [target])))
       throw new HttpError(404, 'Không tìm thấy người dùng.');
+    await peer(req.user.id, target);
+    const targetUser = await one('SELECT is_private FROM users WHERE id=$1', [target]);
+    if (
+      following &&
+      targetUser.is_private &&
+      !(await one('SELECT 1 FROM follows WHERE follower_id=$1 AND following_id=$2', [
+        req.user.id,
+        target,
+      ]))
+    ) {
+      const insertedRequest = await q(
+        'INSERT INTO follow_requests(user_id,target_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING user_id',
+        [req.user.id, target],
+      );
+      if (insertedRequest.length) await notify(target, req.user.id, 'request');
+      io.to(`user:${target}`).emit('permissions:changed');
+      return res.json({ following: false, requested: true });
+    }
+    if (!following)
+      await db.query('DELETE FROM follow_requests WHERE user_id=$1 AND target_id=$2', [
+        req.user.id,
+        target,
+      ]);
     if (following) {
       const inserted = await q(
         'INSERT INTO follows(follower_id,following_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING *',
@@ -369,7 +455,7 @@ export function createApp(db, { testing = false } = {}) {
       const asset = await new Promise((resolve, reject) => {
         cloudinary.uploader
           .upload_stream(
-            { folder: 'nhip', resource_type: 'image', public_id: uploadId },
+            { folder: 'po', resource_type: 'image', type: 'authenticated', public_id: uploadId },
             (error, result) => (error ? reject(error) : resolve(result)),
           )
           .end(buffer);
@@ -381,12 +467,7 @@ export function createApp(db, { testing = false } = {}) {
       await writeFile(`${uploadDir}/${uploadId}.webp`, buffer);
       url = `/uploads/${uploadId}.webp`;
     }
-    await db.query('INSERT INTO uploads(id,user_id,url,public_id) VALUES($1,$2,$3,$4)', [
-      uploadId,
-      req.user.id,
-      url,
-      publicId,
-    ]);
+    url = await storeAsset(db, { id: uploadId, userId: req.user.id, url, publicId });
     res.status(201).json({ id: uploadId, url });
   });
   app.get('/api/posts', async (req, res) => {
@@ -400,6 +481,7 @@ export function createApp(db, { testing = false } = {}) {
       .parse(req.query);
     const rows = await q(
       `${postSelect} WHERE (p.content ILIKE $2 OR u.name ILIKE $2 OR u.username ILIKE $2)
+      AND ${visiblePost()}
       AND ($3::uuid IS NULL OR p.user_id=$3)
       AND ($4='all' OR p.user_id=$1 OR EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.following_id=p.user_id))
       ORDER BY p.created_at DESC,p.id DESC LIMIT 21 OFFSET $5`,
@@ -408,46 +490,94 @@ export function createApp(db, { testing = false } = {}) {
     res.json({ posts: rows.slice(0, 20).map(postJSON), hasMore: rows.length > 20 });
   });
   app.get('/api/posts/:id', async (req, res) => {
+    await requirePost(req.params.id, req.user.id);
     const post = await one(`${postSelect} WHERE p.id=$2`, [req.user.id, id(req.params.id)]);
     if (!post) throw new HttpError(404, 'Bài viết không còn tồn tại.');
     res.json({ post: postJSON(post) });
   });
+  async function ownedMedia(userId, ids) {
+    if (!ids.length) return [];
+    if (new Set(ids).size !== ids.length)
+      throw new HttpError(400, 'Không chọn trùng cùng một tệp.');
+    const rows = await q(
+      'SELECT id,url,kind FROM uploads WHERE id=ANY($1::uuid[]) AND user_id=$2',
+      [ids, userId],
+    );
+    if (rows.length !== ids.length)
+      throw new HttpError(400, 'Tệp tải lên không hợp lệ hoặc không thuộc tài khoản này.');
+    return ids.map((id) => {
+      const item = rows.find((row) => row.id === id);
+      return { url: item.url, kind: item.kind };
+    });
+  }
   app.post('/api/posts', async (req, res) => {
     const input = z
-      .object({ content: z.string().trim().max(5000), uploadId: uuid.optional() })
+      .object({
+        content: z.string().trim().max(5000).default(''),
+        uploadId: uuid.optional(),
+        uploadIds: z.array(uuid).max(10).optional(),
+        sharedPostId: uuid.optional(),
+      })
       .parse(req.body);
-    if (!input.content && !input.uploadId)
-      throw new HttpError(400, 'Hãy viết nội dung hoặc chọn ảnh.');
-    const image = await ownedImage(req.user.id, input.uploadId);
-    const postId = randomUUID();
-    await db.query('INSERT INTO posts(id,user_id,content,image) VALUES($1,$2,$3,$4)', [
-      postId,
+    const media = await ownedMedia(
       req.user.id,
-      input.content,
-      image,
-    ]);
+      input.uploadIds || (input.uploadId ? [input.uploadId] : []),
+    );
+    if (input.sharedPostId) await requirePost(input.sharedPostId, req.user.id);
+    if (!input.content && !media.length && !input.sharedPostId)
+      throw new HttpError(400, 'Hãy nhập nội dung hoặc chọn ảnh/video.');
+    const postId = randomUUID();
+    await db.query(
+      'INSERT INTO posts(id,user_id,content,image,media,shared_post_id) VALUES($1,$2,$3,$4,$5,$6)',
+      [
+        postId,
+        req.user.id,
+        input.content,
+        media.find((m) => m.kind === 'image')?.url || '',
+        JSON.stringify(media),
+        input.sharedPostId || null,
+      ],
+    );
+    io.emit('feed:changed');
     res
       .status(201)
       .json({ post: postJSON(await one(`${postSelect} WHERE p.id=$2`, [req.user.id, postId])) });
   });
   app.patch('/api/posts/:id', async (req, res) => {
-    const post = await requirePost(req.params.id);
+    const post = await requirePost(req.params.id, req.user.id);
     if (post.user_id !== req.user.id)
       throw new HttpError(403, 'Bạn chỉ được sửa bài viết của mình.');
-    const { content } = z.object({ content: z.string().trim().max(5000) }).parse(req.body);
-    if (!content && !post.image) throw new HttpError(400, 'Bài viết cần có nội dung.');
-    await db.query('UPDATE posts SET content=$1,updated_at=NOW() WHERE id=$2', [content, post.id]);
+    const input = z
+      .object({ content: z.string().trim().max(5000), uploadIds: z.array(uuid).max(10).optional() })
+      .parse(req.body);
+    const media = input.uploadIds
+      ? await ownedMedia(req.user.id, input.uploadIds)
+      : post.media?.length
+        ? post.media
+        : post.image
+          ? [{ url: post.image, kind: 'image' }]
+          : [];
+    if (!input.content && !media.length && !post.shared_post_id)
+      throw new HttpError(400, 'Hãy nhập nội dung hoặc chọn ảnh/video.');
+    await db.query('UPDATE posts SET content=$1,media=$2,image=$3,updated_at=NOW() WHERE id=$4', [
+      input.content,
+      JSON.stringify(media),
+      media.find((m) => m.kind === 'image')?.url || '',
+      post.id,
+    ]);
+    changed(post.id);
     res.json({ post: postJSON(await one(`${postSelect} WHERE p.id=$2`, [req.user.id, post.id])) });
   });
   app.delete('/api/posts/:id', async (req, res) => {
-    const post = await requirePost(req.params.id);
+    const post = await requirePost(req.params.id, req.user.id);
     if (post.user_id !== req.user.id)
       throw new HttpError(403, 'Bạn chỉ được xóa bài viết của mình.');
     await db.query('DELETE FROM posts WHERE id=$1', [post.id]);
+    io.emit('post:deleted', { id: post.id });
     res.json({ ok: true });
   });
   app.put('/api/posts/:id/like', async (req, res) => {
-    const post = await requirePost(req.params.id);
+    const post = await requirePost(req.params.id, req.user.id);
     const { liked } = z.object({ liked: z.boolean() }).parse(req.body);
     if (liked) {
       const inserted = await q(
@@ -457,10 +587,11 @@ export function createApp(db, { testing = false } = {}) {
       if (inserted.length) await notify(post.user_id, req.user.id, 'like', post.id);
     } else
       await db.query('DELETE FROM likes WHERE user_id=$1 AND post_id=$2', [req.user.id, post.id]);
+    changed(post.id);
     res.json({ post: postJSON(await one(`${postSelect} WHERE p.id=$2`, [req.user.id, post.id])) });
   });
   app.get('/api/posts/:id/comments', async (req, res) => {
-    await requirePost(req.params.id);
+    await requirePost(req.params.id, req.user.id);
     const page = z.coerce
       .number()
       .int()
@@ -469,10 +600,12 @@ export function createApp(db, { testing = false } = {}) {
       .parse(req.query.page || 1);
     const rows = await q(
       `SELECT c.*,row_to_json(u) AS author,
-      (SELECT COUNT(*)::int FROM comments replies WHERE replies.parent_id=c.id) AS reply_count FROM comments c
-      JOIN (SELECT id,username,name,bio,avatar,created_at FROM users) u ON u.id=c.user_id
-      WHERE c.post_id=$1 AND c.parent_id IS NULL ORDER BY c.created_at DESC,c.id DESC LIMIT 21 OFFSET $2`,
-      [req.params.id, (page - 1) * 20],
+      (SELECT COUNT(*)::int FROM comments replies WHERE replies.parent_id=c.id) AS reply_count,
+      (SELECT COUNT(*)::int FROM comment_likes cl WHERE cl.comment_id=c.id) AS like_count,
+      EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id=c.id AND cl.user_id=$3) AS is_liked FROM comments c
+      JOIN (SELECT id,username,name,bio,avatar,cover,is_private,banned,created_at FROM users) u ON u.id=c.user_id
+      WHERE c.post_id=$1 AND c.parent_id IS NULL AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$3 AND b.target_id=c.user_id) OR (b.target_id=$3 AND b.user_id=c.user_id)) ORDER BY c.created_at DESC,c.id DESC LIMIT 21 OFFSET $2`,
+      [req.params.id, (page - 1) * 20, req.user.id],
     );
     res.json({
       comments: rows.slice(0, 20).map((c) => ({
@@ -482,15 +615,18 @@ export function createApp(db, { testing = false } = {}) {
         createdAt: c.created_at,
         parentId: c.parent_id,
         replyCount: c.reply_count,
+        likeCount: c.like_count,
+        isLiked: c.is_liked,
       })),
       hasMore: rows.length > 20,
     });
   });
   app.get('/api/posts/:postId/comments/:id/replies', async (req, res) => {
-    const parent = await one(
-      'SELECT id FROM comments WHERE id=$1 AND post_id=$2 AND parent_id IS NULL',
-      [id(req.params.id), id(req.params.postId)],
-    );
+    await requirePost(req.params.postId, req.user.id);
+    const parent = await one('SELECT id FROM comments WHERE id=$1 AND post_id=$2', [
+      id(req.params.id),
+      id(req.params.postId),
+    ]);
     if (!parent) throw new HttpError(404, 'Bình luận không tồn tại.');
     const page = z.coerce
       .number()
@@ -499,10 +635,10 @@ export function createApp(db, { testing = false } = {}) {
       .max(10000)
       .parse(req.query.page || 1);
     const rows = await q(
-      `SELECT c.*,row_to_json(u) AS author FROM comments c
-      JOIN (SELECT id,username,name,bio,avatar,created_at FROM users) u ON u.id=c.user_id
-      WHERE c.parent_id=$1 ORDER BY c.created_at,c.id LIMIT 21 OFFSET $2`,
-      [parent.id, (page - 1) * 20],
+      `SELECT c.*,row_to_json(u) AS author,(SELECT COUNT(*)::int FROM comments child WHERE child.parent_id=c.id) AS reply_count,(SELECT COUNT(*)::int FROM comment_likes cl WHERE cl.comment_id=c.id) AS like_count,EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id=c.id AND cl.user_id=$3) AS is_liked FROM comments c
+      JOIN (SELECT id,username,name,bio,avatar,cover,is_private,banned,created_at FROM users) u ON u.id=c.user_id
+      WHERE c.parent_id=$1 AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$3 AND b.target_id=c.user_id) OR (b.target_id=$3 AND b.user_id=c.user_id)) ORDER BY c.created_at,c.id LIMIT 21 OFFSET $2`,
+      [parent.id, (page - 1) * 20, req.user.id],
     );
     res.json({
       comments: rows.slice(0, 20).map((c) => ({
@@ -511,32 +647,40 @@ export function createApp(db, { testing = false } = {}) {
         author: publicUser(c.author),
         createdAt: c.created_at,
         parentId: c.parent_id,
-        replyCount: 0,
+        replyCount: c.reply_count,
+        likeCount: c.like_count,
+        isLiked: c.is_liked,
       })),
       hasMore: rows.length > 20,
     });
   });
   app.post('/api/posts/:id/comments', async (req, res) => {
-    const post = await requirePost(req.params.id);
+    const post = await requirePost(req.params.id, req.user.id);
     const { content, parentId } = z
       .object({ content: text(2000), parentId: uuid.nullable().optional() })
       .parse(req.body);
     const parent = parentId
-      ? await one('SELECT * FROM comments WHERE id=$1 AND post_id=$2 AND parent_id IS NULL', [
-          parentId,
-          post.id,
-        ])
+      ? await one('SELECT * FROM comments WHERE id=$1 AND post_id=$2', [parentId, post.id])
       : null;
     if (parentId && !parent)
       throw new HttpError(404, 'Bình luận gốc không tồn tại trong bài viết này.');
+    if (parent) {
+      await peer(req.user.id, parent.user_id);
+      const depth = await one(
+        'WITH RECURSIVE chain AS (SELECT id,parent_id,1 AS depth FROM comments WHERE id=$1 UNION ALL SELECT c.id,c.parent_id,chain.depth+1 FROM comments c JOIN chain ON c.id=chain.parent_id WHERE chain.depth<11) SELECT MAX(depth)::int AS depth FROM chain',
+        [parent.id],
+      );
+      if (depth.depth >= 10) throw new HttpError(400, 'Nhóm trả lời đã đạt giới hạn 10 cấp.');
+    }
     const commentId = randomUUID();
     const created = await one(
       'INSERT INTO comments(id,post_id,user_id,content,parent_id) VALUES($1,$2,$3,$4,$5) RETURNING *',
       [commentId, post.id, req.user.id, content, parentId || null],
     );
-    if (parent) await notify(parent.user_id, req.user.id, 'reply', post.id);
+    if (parent) await notify(parent.user_id, req.user.id, 'reply', post.id, created.id);
     if (!parent || parent.user_id !== post.user_id)
-      await notify(post.user_id, req.user.id, 'comment', post.id);
+      await notify(post.user_id, req.user.id, 'comment', post.id, created.id);
+    changed(post.id);
     res.status(201).json({
       ok: true,
       comment: {
@@ -550,6 +694,7 @@ export function createApp(db, { testing = false } = {}) {
     });
   });
   app.delete('/api/posts/:postId/comments/:id', async (req, res) => {
+    await requirePost(req.params.postId, req.user.id);
     const comment = await one('SELECT * FROM comments WHERE id=$1 AND post_id=$2', [
       id(req.params.id),
       id(req.params.postId),
@@ -561,6 +706,7 @@ export function createApp(db, { testing = false } = {}) {
     const count = await one('SELECT COUNT(*)::int AS count FROM comments WHERE post_id=$1', [
       comment.post_id,
     ]);
+    changed(comment.post_id, { deletedCommentId: comment.id });
     res.json({ ok: true, commentCount: count.count });
   });
   app.get('/api/notifications', async (req, res) => {
@@ -572,12 +718,12 @@ export function createApp(db, { testing = false } = {}) {
       .parse(req.query.page || 1);
     const rows = await q(
       `SELECT n.*,row_to_json(u) AS actor FROM notifications n
-      JOIN (SELECT id,username,name,bio,avatar,created_at FROM users) u ON u.id=n.actor_id
-      WHERE n.user_id=$1 ORDER BY n.created_at DESC,n.id DESC LIMIT 31 OFFSET $2`,
+      JOIN (SELECT id,username,name,bio,avatar,cover,is_private,banned,created_at FROM users) u ON u.id=n.actor_id
+      WHERE n.user_id=$1 AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$1 AND b.target_id=n.actor_id) OR (b.target_id=$1 AND b.user_id=n.actor_id)) ORDER BY n.created_at DESC,n.id DESC LIMIT 31 OFFSET $2`,
       [req.user.id, (page - 1) * 30],
     );
     const count = await one(
-      'SELECT COUNT(*)::int AS count FROM notifications WHERE user_id=$1 AND read_at IS NULL',
+      'SELECT COUNT(*)::int AS count FROM notifications n JOIN users u ON u.id=n.actor_id WHERE n.user_id=$1 AND n.read_at IS NULL AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$1 AND b.target_id=n.actor_id) OR (b.target_id=$1 AND b.user_id=n.actor_id))',
       [req.user.id],
     );
     res.json({
@@ -586,6 +732,7 @@ export function createApp(db, { testing = false } = {}) {
         actor: publicUser(n.actor),
         kind: n.kind,
         postId: n.post_id,
+        commentId: n.comment_id,
         readAt: n.read_at,
         createdAt: n.created_at,
       })),
@@ -615,7 +762,7 @@ export function createApp(db, { testing = false } = {}) {
       m.content AS last_message,m.created_at AS last_at,
       (SELECT COUNT(*)::int FROM messages x WHERE x.sender_id=u.id AND x.recipient_id=$1 AND x.read_at IS NULL) AS unread
       FROM messages m JOIN users u ON u.id=CASE WHEN m.sender_id=$1 THEN m.recipient_id ELSE m.sender_id END
-      WHERE m.sender_id=$1 OR m.recipient_id=$1 ORDER BY u.id,m.created_at DESC,m.id DESC`,
+      WHERE (m.sender_id=$1 OR m.recipient_id=$1) AND u.banned=FALSE AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$1 AND b.target_id=u.id) OR (b.target_id=$1 AND b.user_id=u.id)) ORDER BY u.id,m.created_at DESC,m.id DESC`,
       [req.user.id],
     );
     res.json({
@@ -629,56 +776,8 @@ export function createApp(db, { testing = false } = {}) {
         .sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt)),
     });
   });
-  const messageJSON = (m) => ({
-    id: m.id,
-    senderId: m.sender_id,
-    recipientId: m.recipient_id,
-    content: m.content,
-    createdAt: m.created_at,
-    readAt: m.read_at,
-  });
-  app.get('/api/messages/:id', async (req, res) => {
-    const target = id(req.params.id);
-    if (!(await one('SELECT id FROM users WHERE id=$1', [target])))
-      throw new HttpError(404, 'Không tìm thấy người dùng.');
-    const page = z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(10000)
-      .parse(req.query.page || 1);
-    const rows = await q(
-      `SELECT * FROM messages WHERE (sender_id=$1 AND recipient_id=$2) OR (sender_id=$2 AND recipient_id=$1)
-      ORDER BY created_at DESC,id DESC LIMIT 41 OFFSET $3`,
-      [req.user.id, target, (page - 1) * 40],
-    );
-    res.json({ messages: rows.slice(0, 40).reverse().map(messageJSON), hasMore: rows.length > 40 });
-  });
-  app.patch('/api/messages/:id/read', async (req, res) => {
-    await db.query(
-      'UPDATE messages SET read_at=NOW() WHERE sender_id=$1 AND recipient_id=$2 AND read_at IS NULL',
-      [id(req.params.id), req.user.id],
-    );
-    io.to(`user:${req.user.id}`).emit('conversation:read');
-    res.json({ ok: true });
-  });
-  app.post('/api/messages/:id', async (req, res) => {
-    const target = id(req.params.id);
-    const { content } = z.object({ content: text(2000) }).parse(req.body);
-    if (target === req.user.id) throw new HttpError(400, 'Hãy chọn người nhận khác.');
-    if (!(await one('SELECT id FROM users WHERE id=$1', [target])))
-      throw new HttpError(404, 'Không tìm thấy người dùng.');
-    const message = await one(
-      'INSERT INTO messages(id,sender_id,recipient_id,content) VALUES($1,$2,$3,$4) RETURNING *',
-      [randomUUID(), req.user.id, target, content],
-    );
-    const payload = messageJSON(message);
-    io.to(`user:${target}`).to(`user:${req.user.id}`).emit('message:new', payload);
-    res.status(201).json({ message: payload });
-  });
-
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API không tồn tại.' }));
-  app.use('/uploads', express.static(uploadDir, { maxAge: '7d', dotfiles: 'deny' }));
+  app.use('/uploads', auth, legacyMedia);
   const clientDir = fileURLToPath(new URL('../../client/dist/', import.meta.url));
   app.use(
     express.static(clientDir, {
@@ -702,7 +801,9 @@ export function createApp(db, { testing = false } = {}) {
     if (error instanceof z.ZodError)
       return res.status(400).json({ error: error.issues[0]?.message || 'Dữ liệu không hợp lệ.' });
     if (error instanceof multer.MulterError)
-      return res.status(400).json({ error: 'Chỉ nhận một ảnh, tối đa 5 MB.' });
+      return res.status(400).json({
+        error: 'Tệp quá lớn hoặc không đúng định dạng: ảnh tối đa 5 MB, video tối đa 25 MB.',
+      });
     if (error.code === '23505')
       return res.status(409).json({ error: 'Email hoặc tên người dùng đã được sử dụng.' });
     if (error.type === 'entity.parse.failed')

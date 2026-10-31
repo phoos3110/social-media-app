@@ -5,16 +5,19 @@ import type { User } from '../types/social';
 import { Brand } from './ui';
 import { ThemeToggle } from './Theme';
 import { InstallApp } from './Pwa';
+import { ForgotPassword } from './AccountLink';
 
 export default function AuthPage({ onAuth }: { onAuth: (user: User) => void }) {
   const [register, setRegister] = useState(false);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [forgot, setForgot] = useState(false);
   return (
     <main className="auth-layout">
       <ThemeToggle className="auth-theme-toggle" />
       <InstallApp className="auth-install-app" />
+      {forgot && <ForgotPassword onClose={() => setForgot(false)} />}
       <section className="auth-story">
         <Brand />
         <div className="auth-copy">
@@ -51,6 +54,11 @@ export default function AuthPage({ onAuth }: { onAuth: (user: User) => void }) {
               Đăng ký
             </button>
           </div>
+          {!register && (
+            <button className="text-button forgot-password" onClick={() => setForgot(true)}>
+              Quên mật khẩu?
+            </button>
+          )}
           <form
             onSubmit={async (event) => {
               event.preventDefault();

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createDatabase } from './db.js';
 import { createApp } from './app.js';
+import { processMediaCleanup } from './cleanup.js';
 
 if (process.env.RENDER === 'true') {
   for (const key of [
@@ -18,6 +19,12 @@ if (process.env.RENDER === 'true') {
 
 const db = await createDatabase();
 const { http, io } = createApp(db);
+void processMediaCleanup(db).catch(() => console.error('Media cleanup will retry later.'));
+const cleanupTimer = setInterval(
+  () => void processMediaCleanup(db).catch(() => console.error('Media cleanup will retry later.')),
+  60000,
+);
+cleanupTimer.unref();
 const port = Number(process.env.PORT || 4180);
 http.listen(port, process.env.HOST || '127.0.0.1', () => {
   console.log(`Po API listening on port ${port}`);
@@ -26,6 +33,7 @@ http.listen(port, process.env.HOST || '127.0.0.1', () => {
   );
 });
 async function stop() {
+  clearInterval(cleanupTimer);
   io.close();
   http.close();
   await db.close();

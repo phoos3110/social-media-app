@@ -6,6 +6,14 @@ import { Avatar } from './ui';
 import Comments from './Comments';
 import { useOptimisticLike } from '../lib/useOptimisticLike';
 import { useConfirm } from '../lib/confirmation';
+import {
+  PostMedia,
+  SharedPreview,
+  ReportButton,
+  SaveButton,
+  SharePost,
+  PostLikers,
+} from './PostFeatures';
 
 type Props = {
   post: SocialPost;
@@ -14,8 +22,17 @@ type Props = {
   onDelete: (id: string) => void;
   onProfile: (id: string) => void;
   onError: (message: string) => void;
+  initialCommentId?: string;
 };
-export default function FeedPost({ post, me, onChange, onDelete, onProfile, onError }: Props) {
+export default function FeedPost({
+  post,
+  me,
+  onChange,
+  onDelete,
+  onProfile,
+  onError,
+  initialCommentId,
+}: Props) {
   const confirm = useConfirm();
   const actionLock = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -28,8 +45,9 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showComments, setShowComments] = useState(false);
-  const [commentsOpened, setCommentsOpened] = useState(false);
+  const [showComments, setShowComments] = useState(Boolean(initialCommentId));
+  const [commentsOpened, setCommentsOpened] = useState(Boolean(initialCommentId));
+  const [likers, setLikers] = useState(false);
 
   useEffect(() => {
     if (!menu) return;
@@ -60,7 +78,7 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
     }
   }
   return (
-    <article className="card feed-post">
+    <article className="card feed-post" data-post-id={post.id}>
       <header className="post-header">
         <button className="user-link" onClick={() => onProfile(post.author.id)}>
           <Avatar user={post.author} />
@@ -71,6 +89,14 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
             </small>
           </span>
         </button>
+        <div className="post-tools">
+          <SaveButton
+            post={post}
+            onSaved={(saved) => onChange({ ...latestPost.current, isSaved: saved })}
+            onError={onError}
+          />
+          {me.id !== post.author.id && <ReportButton postId={post.id} />}
+        </div>
         {me.id === post.author.id && (
           <div className="post-menu" ref={menuRef}>
             <button
@@ -163,7 +189,12 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
               <X size={15} />
               Hủy
             </button>
-            <button className="primary" disabled={busy || (!draft.trim() && !post.image)}>
+            <button
+              className="primary"
+              disabled={
+                busy || (!draft.trim() && !post.image && !post.media?.length && !post.sharedPostId)
+              }
+            >
               <Check size={15} />
               Lưu
             </button>
@@ -172,18 +203,10 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
       ) : (
         post.content && <p className="post-content">{post.content}</p>
       )}
-      {post.image && (
-        <a className="post-image-link" href={post.image} target="_blank" rel="noreferrer">
-          <img
-            className="post-image"
-            src={post.image}
-            loading="lazy"
-            alt={`Ảnh trong bài viết của ${post.author.name}`}
-          />
-        </a>
-      )}
+      <PostMedia post={post} />
+      {post.sharedPostId && <SharedPreview postId={post.sharedPostId} />}
       <div className="post-stats">
-        <span>
+        <button className="likers-link" onClick={() => setLikers(true)}>
           {post.likeCount > 0 ? (
             <>
               <span className="like-dot">
@@ -194,7 +217,7 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
           ) : (
             'Chưa có lượt thích'
           )}
-        </span>
+        </button>
         <button
           onClick={() => {
             setShowComments(!showComments);
@@ -224,6 +247,7 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
           <MessageCircle size={19} />
           Bình luận
         </button>
+        <SharePost post={post} />
       </div>
       {commentsOpened && (
         <div hidden={!showComments}>
@@ -234,8 +258,12 @@ export default function FeedPost({ post, me, onChange, onDelete, onProfile, onEr
             onCountChange={(count) => onChange({ ...latestPost.current, commentCount: count })}
             onProfile={onProfile}
             onError={onError}
+            initialCommentId={initialCommentId}
           />
         </div>
+      )}
+      {likers && (
+        <PostLikers postId={post.id} onProfile={onProfile} onClose={() => setLikers(false)} />
       )}
     </article>
   );

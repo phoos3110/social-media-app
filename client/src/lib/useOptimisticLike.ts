@@ -29,6 +29,9 @@ export function useOptimisticLike(
     });
   }
   return async function toggle() {
+    window.dispatchEvent(
+      new CustomEvent('po:like-pending', { detail: { id: post.id, pending: true } }),
+    );
     desired.current = !desired.current;
     show();
     if (running.current) return;
@@ -48,6 +51,9 @@ export function useOptimisticLike(
       onError((error as Error).message);
     } finally {
       running.current = false;
+      window.dispatchEvent(
+        new CustomEvent('po:like-pending', { detail: { id: post.id, pending: false } }),
+      );
     }
   };
 }

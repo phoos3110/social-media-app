@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "push:keys": "node src/generate-push-keys.js",
     "migrate:local": "node src/migrate-local.js",
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
@@ -21,6 +22,7 @@
     "pg": "^8.16.3",
     "sharp": "^0.35.5",
     "socket.io": "^4.8.1",
+    "web-push": "^3.6.7",
     "zod": "^4.1.12"
   },
   "devDependencies": {

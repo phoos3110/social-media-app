@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, MessageCircle, Send } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Send, ImagePlus, Reply, X, Undo2 } from 'lucide-react';
 import type { Socket } from 'socket.io-client';
 import type { Conversation, Message, User } from '../types/social';
-import { api, timeAgo } from '../lib/api';
+import { api, timeAgo, uploadImage } from '../lib/api';
+import { useDraft } from '../lib/drafts';
+import { usePresence } from '../lib/usePresence';
 import { Avatar, Loading } from './ui';
 import { useConfirm } from '../lib/confirmation';
 
 function mergeMessages(incoming: Message[], previous: Message[]) {
-  const byId = new Map([...incoming, ...previous].map((message) => [message.id, message]));
+  const byId = new Map([...previous, ...incoming].map((message) => [message.id, message]));
   return [...byId.values()].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
@@ -31,7 +33,24 @@ export default function Chat({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [peer, setPeer] = useState<User | null>(initialPeer);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState('');
+  const draftKey = `po:draft:${me.id}:chat:${peer?.id || 'inbox'}`;
+  const [draft, setDraft] = useDraft(draftKey);
+  const [assetJson, setAssetJson] = useDraft(draftKey + ':image');
+  const [replyJson, setReplyJson] = useDraft(draftKey + ':reply');
+  let asset: { id: string; url: string } | null = null,
+    reply: Message | null = null;
+  try {
+    const value = JSON.parse(assetJson);
+    if (value && typeof value.id === 'string' && typeof value.url === 'string') asset = value;
+  } catch {}
+  try {
+    const value = JSON.parse(replyJson);
+    if (value && typeof value.id === 'string' && typeof value.content === 'string') reply = value;
+  } catch {}
+  const online = usePresence(peer ? [peer.id] : [], socket);
+  const [typing, setTyping] = useState(false),
+    [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(Boolean(initialPeer));
   const [page, setPage] = useState(1);
@@ -46,7 +65,7 @@ export default function Chat({
   async function selectPeer(next: User | null) {
     if (next?.id === peer?.id || busy) return;
     if (
-      draft.trim() &&
+      (draft.trim() || asset || reply) &&
       !(await confirm({
         title: 'Bỏ tin nhắn đang soạn?',
         message: 'Tin nhắn này chưa được gửi.',
@@ -55,6 +74,8 @@ export default function Chat({
     )
       return;
     setDraft('');
+    setAssetJson('');
+    setReplyJson('');
     setMessages([]);
     setPage(1);
     setHasMore(false);
@@ -92,7 +113,8 @@ export default function Chat({
                 m.id.startsWith('pending-') &&
                 m.senderId === message.senderId &&
                 m.recipientId === message.recipientId &&
-                m.content === message.content
+                m.content === message.content &&
+                (m.image || '') === (message.image || '')
               ),
           );
           return withoutPending.some((m) => m.id === message.id)
@@ -117,14 +139,76 @@ export default function Chat({
           .catch((e) => onError(e.message));
     };
     socket?.on('message:new', onMessage);
+    const onReadMessage = ({ readerId, readAt }: { readerId: string; readAt: string }) =>
+      setMessages((old) =>
+        old.map((m) =>
+          m.recipientId === readerId &&
+          m.senderId === me.id &&
+          !m.id.startsWith('pending-') &&
+          m.createdAt <= readAt
+            ? { ...m, readAt }
+            : m,
+        ),
+      );
+    const onRecall = (message: Message) => {
+      setReplyJson((old) => {
+        try {
+          if (JSON.parse(old)?.id === message.id) return '';
+        } catch {}
+        return old;
+      });
+      setMessages((old) =>
+        old.map((m) =>
+          m.id === message.id
+            ? message
+            : m.replyTo?.id === message.id
+              ? {
+                  ...m,
+                  replyTo: {
+                    ...m.replyTo,
+                    content: '',
+                    image: '',
+                    recalledAt: message.recalledAt || new Date().toISOString(),
+                  },
+                }
+              : m,
+        ),
+      );
+    };
+    socket?.on('message:read', onReadMessage);
+    socket?.on('message:recalled', onRecall);
     socket?.on('connect', reconnect);
     return () => {
       active = false;
       socket?.off('message:new', onMessage);
+      socket?.off('message:read', onReadMessage);
+      socket?.off('message:recalled', onRecall);
       socket?.off('connect', reconnect);
     };
-  }, [socket, read, onError, refreshConversations]);
+  }, [socket, read, onError, refreshConversations, me.id, setReplyJson]);
   const peerId = peer?.id;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const change = ({ userId, typing: active }: { userId: string; typing: boolean }) => {
+      if (userId !== peerId) return;
+      setTyping(active);
+      clearTimeout(timer);
+      if (active) timer = setTimeout(() => setTyping(false), 3000);
+    };
+    socket?.on('typing', change);
+    return () => {
+      clearTimeout(timer);
+      socket?.off('typing', change);
+    };
+  }, [peerId, socket]);
+  useEffect(() => {
+    if (!peerId) return;
+    const timer = setTimeout(
+      () => socket?.emit('typing', { recipientId: peerId, typing: Boolean(draft.trim()) }),
+      400,
+    );
+    return () => clearTimeout(timer);
+  }, [draft, peerId, socket]);
   useEffect(() => {
     if (!peerId) return;
     const controller = new AbortController();
@@ -228,7 +312,9 @@ export default function Chat({
               <Avatar user={peer} size="sm" />
               <span>
                 <strong>{peer.name}</strong>
-                <small>@{peer.username}</small>
+                <small>
+                  @{peer.username} · {online.includes(peer.id) ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                </small>
               </span>
             </header>
             <div className="message-list" aria-live="polite">
@@ -273,24 +359,137 @@ export default function Chat({
                   className={`message ${message.senderId === me.id ? 'outgoing' : 'incoming'}`}
                   key={message.id}
                 >
-                  <p>{message.content}</p>
+                  {message.replyTo && (
+                    <blockquote className="message-quote">
+                      {message.replyTo.recalledAt
+                        ? 'Tin nhắn đã thu hồi'
+                        : message.replyTo.content || 'Ảnh'}
+                    </blockquote>
+                  )}
+                  {message.recalledAt ? (
+                    <p className="recalled-message">Tin nhắn đã được thu hồi</p>
+                  ) : (
+                    <>
+                      {message.content && <p>{message.content}</p>}
+                      {message.image && (
+                        <a href={message.image} target="_blank" rel="noreferrer">
+                          <img
+                            className="chat-image"
+                            src={message.image}
+                            alt="Ảnh trong cuộc trò chuyện"
+                            loading="lazy"
+                          />
+                        </a>
+                      )}
+                    </>
+                  )}
                   <small>
-                    {message.id.startsWith('pending-') ? 'Đang gửi…' : timeAgo(message.createdAt)}
+                    {message.id.startsWith('pending-')
+                      ? 'Đang gửi…'
+                      : `${timeAgo(message.createdAt)}${message.senderId === me.id && message.readAt ? ' · Đã xem' : ''}`}
                   </small>
+                  {!message.recalledAt && !message.id.startsWith('pending-') && (
+                    <div className="message-tools">
+                      <button
+                        className="icon-button"
+                        aria-label="Trả lời tin nhắn"
+                        onClick={() => setReplyJson(JSON.stringify(message))}
+                      >
+                        <Reply size={15} />
+                      </button>
+                      {message.senderId === me.id && (
+                        <button
+                          className="icon-button"
+                          aria-label="Thu hồi tin nhắn"
+                          onClick={async () => {
+                            if (
+                              !(await confirm({
+                                title: 'Thu hồi tin nhắn?',
+                                message: 'Nội dung sẽ bị gỡ với cả hai người.',
+                                confirmLabel: 'Thu hồi',
+                              }))
+                            )
+                              return;
+                            try {
+                              const data = await api<{ message: Message }>(
+                                `/messages/${message.id}`,
+                                'DELETE',
+                              );
+                              setMessages((old) =>
+                                old.map((m) =>
+                                  m.id === message.id
+                                    ? data.message
+                                    : m.replyTo?.id === message.id
+                                      ? {
+                                          ...m,
+                                          replyTo: {
+                                            ...m.replyTo,
+                                            content: '',
+                                            image: '',
+                                            recalledAt:
+                                              data.message.recalledAt || new Date().toISOString(),
+                                          },
+                                        }
+                                      : m,
+                                ),
+                              );
+                            } catch (e) {
+                              onError((e as Error).message);
+                            }
+                          }}
+                        >
+                          <Undo2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               <div ref={end} />
+              {typing && <p className="typing-indicator">{peer.name} đang nhập…</p>}
             </div>
+            {(asset || reply) && (
+              <div className="message-compose-preview">
+                {reply && (
+                  <div>
+                    <strong>Trả lời {reply.senderId === me.id ? 'chính bạn' : peer.name}</strong>
+                    <p>{reply.content || 'Ảnh'}</p>
+                    <button
+                      className="icon-button"
+                      aria-label="Hủy trả lời tin nhắn"
+                      onClick={() => setReplyJson('')}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+                {asset && (
+                  <div>
+                    <img src={asset.url} alt="Ảnh chuẩn bị gửi" />
+                    <button
+                      className="icon-button"
+                      aria-label="Bỏ ảnh tin nhắn"
+                      onClick={() => setAssetJson('')}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <form
               className="message-form"
               onSubmit={async (e) => {
                 e.preventDefault();
-                if (!draft.trim() || busy || sendLock.current) return;
+                if ((!draft.trim() && !asset) || busy || uploading || sendLock.current) return;
                 sendLock.current = true;
                 setBusy(true);
                 const target = peer.id;
                 const content = draft;
-                const tempId = `pending-${crypto.randomUUID()}`;
+                const clientId = crypto.randomUUID();
+                const tempId = `pending-${clientId}`;
+                const sentAsset = asset,
+                  sentReply = reply;
                 setMessages((previous) => [
                   ...previous,
                   {
@@ -300,12 +499,29 @@ export default function Chat({
                     content,
                     createdAt: new Date().toISOString(),
                     readAt: null,
+                    image: sentAsset?.url,
+                    replyToId: sentReply?.id,
+                    replyTo: sentReply
+                      ? {
+                          id: sentReply.id,
+                          senderId: sentReply.senderId,
+                          content: sentReply.content,
+                          image: sentReply.image || '',
+                          recalledAt: sentReply.recalledAt || null,
+                        }
+                      : null,
                   },
                 ]);
                 setDraft('');
+                setAssetJson('');
+                setReplyJson('');
+                socket?.emit('typing', { recipientId: target, typing: false });
                 try {
                   const data = await api<{ message: Message }>(`/messages/${target}`, 'POST', {
                     content,
+                    uploadId: sentAsset?.id,
+                    replyToId: sentReply?.id,
+                    clientId,
                   });
                   if (peerRef.current?.id === target) {
                     setMessages((previous) => {
@@ -319,6 +535,8 @@ export default function Chat({
                 } catch (error) {
                   setMessages((previous) => previous.filter((m) => m.id !== tempId));
                   setDraft((previous) => previous || content);
+                  if (sentAsset) setAssetJson((old) => old || JSON.stringify(sentAsset));
+                  if (sentReply) setReplyJson((old) => old || JSON.stringify(sentReply));
                   onError((error as Error).message);
                 } finally {
                   sendLock.current = false;
@@ -326,6 +544,35 @@ export default function Chat({
                 }
               }}
             >
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                accept="image/jpeg,image/png,image/webp,image/avif"
+                disabled={busy || uploading || loading}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploading(true);
+                  try {
+                    setAssetJson(JSON.stringify(await uploadImage(file)));
+                  } catch (e) {
+                    onError((e as Error).message);
+                  } finally {
+                    setUploading(false);
+                    e.target.value = '';
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Gửi ảnh"
+                disabled={busy || uploading || loading}
+                onClick={() => fileInput.current?.click()}
+              >
+                <ImagePlus size={20} />
+              </button>
               <input
                 disabled={loading}
                 aria-label="Nội dung tin nhắn"
@@ -337,7 +584,7 @@ export default function Chat({
               <button
                 className="primary"
                 aria-label="Gửi tin nhắn"
-                disabled={busy || loading || !draft.trim()}
+                disabled={busy || loading || uploading || (!draft.trim() && !asset)}
               >
                 <Send size={18} />
               </button>

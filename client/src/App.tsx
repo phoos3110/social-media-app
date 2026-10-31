@@ -20,6 +20,8 @@ import AuthPage from './components/AuthPage';
 import { InstallApp } from './components/Pwa';
 import { ThemeToggle } from './components/Theme';
 import Settings from './components/Settings';
+import AccountLink from './components/AccountLink';
+import { usePresence } from './lib/usePresence';
 import { useConfirm } from './lib/confirmation';
 import Composer from './components/Composer';
 import FeedPost from './components/FeedPost';
@@ -29,7 +31,7 @@ import { Avatar, Brand, Empty, Loading } from './components/ui';
 import { api, ApiError, timeAgo } from './lib/api';
 import type { Conversation, Notice, SocialPost, User } from './types/social';
 
-type View = 'feed' | 'discover' | 'notifications' | 'messages' | 'profile';
+type View = 'feed' | 'discover' | 'notifications' | 'messages' | 'profile' | 'saved';
 export default function App() {
   const confirm = useConfirm();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -42,6 +44,12 @@ export default function App() {
   const userId = me?.id;
   const [bootAttempt, setBootAttempt] = useState(0);
   const [booting, setBooting] = useState(true);
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    const update = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
   const [bootError, setBootError] = useState('');
   const [view, setView] = useState<View>('feed');
   const [feed, setFeed] = useState<'all' | 'following'>('all');
@@ -68,7 +76,28 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
+  const online = usePresence(
+    people.map((u) => u.id),
+    socket,
+  );
+  const optimisticLikes = useRef(new Set<string>());
+  useEffect(() => {
+    const update = (event: Event) => {
+      const data = (event as CustomEvent).detail;
+      if (data.pending) optimisticLikes.current.add(data.id);
+      else optimisticLikes.current.delete(data.id);
+    };
+    window.addEventListener('po:like-pending', update);
+    return () => window.removeEventListener('po:like-pending', update);
+  }, []);
   const [focusedPost, setFocusedPost] = useState<SocialPost | null>(null);
+  const knownPosts = useRef(new Set<string>());
+  useEffect(() => {
+    knownPosts.current = new Set([
+      ...posts.map((p) => p.id),
+      ...(focusedPost ? [focusedPost.id] : []),
+    ]);
+  }, [posts, focusedPost]);
   const [pendingFollow, setPendingFollow] = useState<string[]>([]);
   const followLocks = useRef(new Set<string>());
   const feedRequest = useRef(0);
@@ -85,6 +114,7 @@ export default function App() {
         if (!controller.signal.aborted) setMe(data.user);
       })
       .catch((error) => {
+        if (error instanceof ApiError && error.status === 401) setMe(null);
         if (error.name !== 'AbortError' && !(error instanceof ApiError && error.status === 401))
           setBootError('Không thể kết nối. Vui lòng kiểm tra kết nối và thử lại.');
       })
@@ -127,7 +157,13 @@ export default function App() {
       setConnected(true);
       update();
     });
-    connection.on('disconnect', () => setConnected(false));
+    connection.on('disconnect', (reason) => {
+      setConnected(false);
+      if (reason === 'io server disconnect')
+        void api('/auth/me').catch((e) => {
+          if (e instanceof ApiError && e.status === 401) setMe(null);
+        });
+    });
     connection.on('connect_error', () => {
       setConnected(false);
       void api('/auth/me').catch((e) => {
@@ -166,7 +202,7 @@ export default function App() {
     return () => controller.abort();
   }, [userId, keyword, view, refresh, notify]);
   useEffect(() => {
-    if (!userId || !['feed', 'profile'].includes(view)) return;
+    if (!userId || !['feed', 'profile', 'saved'].includes(view)) return;
     const controller = new AbortController();
     const request = ++feedRequest.current;
     const params = new URLSearchParams({
@@ -175,7 +211,7 @@ export default function App() {
       ...(view === 'profile' ? { author: profileId } : {}),
     });
     api<{ posts: SocialPost[]; hasMore: boolean }>(
-      `/posts?${params}`,
+      view === 'saved' ? '/bookmarks' : `/posts?${params}`,
       'GET',
       undefined,
       controller.signal,
@@ -222,8 +258,42 @@ export default function App() {
     setPeer(user);
     navigate('messages');
   }
+  useEffect(() => {
+    if (!userId) return;
+    const params = new URLSearchParams(hash.slice(1));
+    const postId = params.get('post'),
+      chatId = params.get('chat');
+    let active = true;
+    if (postId)
+      void api<{ post: SocialPost }>(`/posts/${postId}`)
+        .then((data) => {
+          if (active) {
+            setView('feed');
+            setFocusedPost(data.post);
+          }
+        })
+        .catch((e) => {
+          if (active) notify(e.message);
+        });
+    if (chatId)
+      void api<{ user: User }>(`/users/${chatId}`)
+        .then((data) => {
+          if (active) {
+            setPeer(data.user);
+            setView('messages');
+            setFocusedPost(null);
+          }
+        })
+        .catch((e) => {
+          if (active) notify(e.message);
+        });
+    return () => {
+      active = false;
+    };
+  }, [hash, userId, notify]);
   async function follow(user: User) {
-    if (followLocks.current.has(user.id)) return;
+    if (followLocks.current.has(user.id))
+      return { following: Boolean(user.isFollowing), requested: user.requested };
     followLocks.current.add(user.id);
     setPendingFollow((previous) => [...previous, user.id]);
     setPeople((previous) =>
@@ -238,7 +308,29 @@ export default function App() {
       ),
     );
     try {
-      await api(`/users/${user.id}/follow`, 'PUT', { following: !user.isFollowing });
+      const result = await api<{ following: boolean; requested?: boolean }>(
+        `/users/${user.id}/follow`,
+        'PUT',
+        { following: !(user.isFollowing || user.requested) },
+      );
+      setPeople((previous) =>
+        previous.map((p) =>
+          p.id === user.id
+            ? {
+                ...p,
+                isFollowing: result.following,
+                requested: result.requested,
+                followers: Math.max(
+                  0,
+                  (user.followers || 0) +
+                    Number(result.following) -
+                    Number(Boolean(user.isFollowing)),
+                ),
+              }
+            : p,
+        ),
+      );
+      return result;
     } catch (e) {
       setPeople((previous) =>
         previous.map((p) =>
@@ -254,7 +346,15 @@ export default function App() {
     }
   }
   function updatePost(post: SocialPost) {
-    setPosts((previous) => previous.map((p) => (p.id === post.id ? post : p)));
+    setPosts((previous) =>
+      view === 'saved'
+        ? post.isSaved === false
+          ? previous.filter((p) => p.id !== post.id)
+          : previous.some((p) => p.id === post.id)
+            ? previous.map((p) => (p.id === post.id ? post : p))
+            : [post, ...previous]
+        : previous.map((p) => (p.id === post.id ? post : p)),
+    );
     setFocusedPost((previous) => (previous?.id === post.id ? post : previous));
   }
   function deletePost(postId: string) {
@@ -262,6 +362,112 @@ export default function App() {
     setFocusedPost((previous) => (previous?.id === postId ? null : previous));
     setProfileVersion((version) => version + 1);
   }
+  useEffect(() => {
+    if (!socket || !userId) return;
+    let active = true;
+    const inFlight = new Set<string>();
+    const dirty = new Set<string>();
+    const change = ({ id, deletedCommentId }: { id: string; deletedCommentId?: string }): void => {
+      window.dispatchEvent(
+        new CustomEvent('po:post-changed', { detail: { id, deletedCommentId } }),
+      );
+      if (!knownPosts.current.has(id)) return;
+      if (inFlight.has(id)) {
+        dirty.add(id);
+        return;
+      }
+      inFlight.add(id);
+      void api<{ post: SocialPost }>(`/posts/${id}`)
+        .then((data) => {
+          if (!active) return;
+          const merge = (old: SocialPost) => ({
+            ...data.post,
+            ...(optimisticLikes.current.has(id)
+              ? { isLiked: old.isLiked, likeCount: old.likeCount }
+              : {}),
+          });
+          setPosts((old) => old.map((p) => (p.id === id ? merge(p) : p)));
+          setFocusedPost((old) => (old?.id === id ? merge(old) : old));
+        })
+        .catch((e) => {
+          if (active && e instanceof ApiError && [403, 404].includes(e.status)) {
+            setPosts((old) => old.filter((p) => p.id !== id));
+            setFocusedPost((old) => (old?.id === id ? null : old));
+          }
+        })
+        .finally(() => {
+          inFlight.delete(id);
+          if (dirty.delete(id) && active) change({ id });
+        });
+    };
+    const remove = ({ id }: { id: string }) => {
+      setPosts((old) => old.filter((p) => p.id !== id));
+      setFocusedPost((old) => (old?.id === id ? null : old));
+    };
+    let feedLoading = false;
+    const feedUpdate = () => {
+      if (feedLoading || !['feed', 'profile'].includes(view)) return;
+      feedLoading = true;
+      const params = new URLSearchParams({
+        search: keyword,
+        feed: view === 'feed' ? feed : 'all',
+        ...(view === 'profile' ? { author: profileId } : {}),
+      });
+      void api<{ posts: SocialPost[] }>(`/posts?${params}`)
+        .then((data) => {
+          if (active)
+            setPosts((old) => [
+              ...data.posts.map((p) => {
+                const local = old.find((o) => o.id === p.id);
+                return local && optimisticLikes.current.has(p.id)
+                  ? { ...p, isLiked: local.isLiked, likeCount: local.likeCount }
+                  : p;
+              }),
+              ...old.filter((p) => !data.posts.some((n) => n.id === p.id)),
+            ]);
+        })
+        .catch(() => {})
+        .finally(() => {
+          feedLoading = false;
+        });
+    };
+    const permissions = () => {
+      void refreshBadges().catch((e) => notify(e.message));
+      setFocusedPost(null);
+      setRefresh((r) => r + 1);
+      if (peer)
+        void api(`/users/${peer.id}`).catch((e) => {
+          if (active && e instanceof ApiError && [403, 404].includes(e.status)) setPeer(null);
+        });
+    };
+    socket.on('post:changed', change);
+    socket.on('post:deleted', remove);
+    socket.on('feed:changed', feedUpdate);
+    socket.on('permissions:changed', permissions);
+    return () => {
+      active = false;
+      socket.off('post:changed', change);
+      socket.off('post:deleted', remove);
+      socket.off('feed:changed', feedUpdate);
+      socket.off('permissions:changed', permissions);
+    };
+  }, [socket, userId, view, keyword, feed, profileId, peer, refreshBadges, notify]);
+  const actionParams = new URLSearchParams(hash.slice(1));
+  if (
+    ['reset', 'verify', 'email'].includes(actionParams.get('action') || '') &&
+    actionParams.get('token')
+  )
+    return (
+      <AccountLink
+        action={actionParams.get('action')!}
+        token={actionParams.get('token')!}
+        onDone={() => {
+          history.replaceState(null, '', location.pathname);
+          setHash('');
+          boot();
+        }}
+      />
+    );
   if (booting)
     return (
       <div className="boot">
@@ -306,6 +512,7 @@ export default function App() {
     notifications: 'Thông báo',
     messages: 'Tin nhắn',
     profile: 'Trang cá nhân',
+    saved: 'Bài viết đã lưu',
   }[view];
   return (
     <div className={`app-layout ${mobileSearchOpen ? 'search-open' : ''}`} data-view={view}>
@@ -365,7 +572,11 @@ export default function App() {
             >
               {mobileSearchOpen ? <X size={20} /> : <Search size={20} />}
             </button>
-            <Settings>
+            <Settings
+              me={me}
+              onBookmarks={() => navigate('saved')}
+              onChanged={() => setRefresh((r) => r + 1)}
+            >
               <div className="setting-row">
                 <span>Giao diện sáng / tối</span>
                 <ThemeToggle />
@@ -457,7 +668,9 @@ export default function App() {
                         ? 'Giữ cuộc trò chuyện luôn tiếp nối.'
                         : view === 'notifications'
                           ? 'Những tương tác nhỏ, niềm vui mỗi ngày.'
-                          : 'Một góc nhỏ kể câu chuyện của bạn.'}
+                          : view === 'saved'
+                            ? 'Những bài viết bạn muốn xem lại.'
+                            : 'Một góc nhỏ kể câu chuyện của bạn.'}
                 </p>
               </div>
             </div>
@@ -468,12 +681,14 @@ export default function App() {
                   Quay lại
                 </button>
                 <FeedPost
+                  key={`${focusedPost.id}:${actionParams.get('comment') || ''}`}
                   post={focusedPost}
                   me={me}
                   onChange={updatePost}
                   onDelete={deletePost}
                   onProfile={openProfile}
                   onError={notify}
+                  initialCommentId={actionParams.get('comment') || undefined}
                 />
               </>
             ) : (
@@ -513,6 +728,10 @@ export default function App() {
                     onFollow={follow}
                     onError={notify}
                     onProfile={openProfile}
+                    onBlocked={() => {
+                      navigate('feed');
+                      setRefresh((r) => r + 1);
+                    }}
                   />
                 )}
                 {view === 'feed' && (
@@ -531,7 +750,7 @@ export default function App() {
                     }}
                   />
                 )}
-                {(view === 'feed' || view === 'profile') && (
+                {(view === 'feed' || view === 'profile' || view === 'saved') && (
                   <>
                     <div className="feed-heading">
                       {view === 'feed' ? (
@@ -560,13 +779,21 @@ export default function App() {
                       <Loading />
                     ) : !visiblePosts.length ? (
                       <Empty
-                        title={keyword ? 'Chưa tìm thấy câu chuyện' : 'Một khởi đầu mới'}
+                        title={
+                          view === 'saved'
+                            ? 'Chưa có bài viết đã lưu'
+                            : keyword
+                              ? 'Chưa tìm thấy câu chuyện'
+                              : 'Một khởi đầu mới'
+                        }
                         text={
-                          keyword
-                            ? 'Thử một từ khóa khác nhé.'
-                            : feed === 'following' && view === 'feed'
-                              ? 'Theo dõi một vài người hoặc chia sẻ bài viết đầu tiên của bạn.'
-                              : 'Chưa có bài viết nào. Chia sẻ một điều nhỏ hôm nay nhé!'
+                          view === 'saved'
+                            ? 'Bấm Lưu trên một bài viết để xem lại ở đây.'
+                            : keyword
+                              ? 'Thử một từ khóa khác nhé.'
+                              : feed === 'following' && view === 'feed'
+                                ? 'Theo dõi một vài người hoặc chia sẻ bài viết đầu tiên của bạn.'
+                                : 'Chưa có bài viết nào. Chia sẻ một điều nhỏ hôm nay nhé!'
                         }
                       />
                     ) : (
@@ -599,7 +826,7 @@ export default function App() {
                               ...(view === 'profile' ? { author: profileId } : {}),
                             });
                             const data = await api<{ posts: SocialPost[]; hasMore: boolean }>(
-                              `/posts?${params}`,
+                              view === 'saved' ? `/bookmarks?page=${page + 1}` : `/posts?${params}`,
                             );
                             if (request !== feedRequest.current) return;
                             setPosts((previous) => [
@@ -638,7 +865,11 @@ export default function App() {
                               disabled={pendingFollow.includes(user.id)}
                               onClick={() => void follow(user).catch((e) => notify(e.message))}
                             >
-                              {user.isFollowing ? 'Đang theo dõi' : 'Theo dõi'}
+                              {user.isFollowing
+                                ? 'Đang theo dõi'
+                                : user.requested
+                                  ? 'Đã gửi yêu cầu'
+                                  : 'Theo dõi'}
                             </button>
                             <button
                               className="secondary"
@@ -701,9 +932,12 @@ export default function App() {
                                   );
                                   await refreshBadges();
                                 }
+                                if (n.kind === 'request') {
+                                  window.dispatchEvent(new Event('po:open-settings'));
+                                  return;
+                                }
                                 if (!n.postId) return openProfile(n.actor.id);
-                                const data = await api<{ post: SocialPost }>(`/posts/${n.postId}`);
-                                setFocusedPost(data.post);
+                                window.location.hash = `post=${n.postId}${n.commentId ? '&comment=' + n.commentId : ''}`;
                               } catch (e) {
                                 notify((e as Error).message);
                               }
@@ -730,7 +964,9 @@ export default function App() {
                                     ? 'đã bình luận về bài viết của bạn.'
                                     : n.kind === 'reply'
                                       ? 'đã trả lời bình luận của bạn.'
-                                      : 'đã bắt đầu theo dõi bạn.'}
+                                      : n.kind === 'request'
+                                        ? 'đã gửi yêu cầu theo dõi bạn.'
+                                        : 'đã bắt đầu theo dõi bạn.'}
                               </p>
                               <small>{timeAgo(n.createdAt)}</small>
                             </span>
@@ -799,7 +1035,10 @@ export default function App() {
                     key={user.id}
                     onClick={() => openChat(user)}
                   >
-                    <Avatar user={user} />
+                    <span className="contact-avatar">
+                      <Avatar user={user} />
+                      {online.includes(user.id) && <i className="online-dot" />}
+                    </span>
                     <span>
                       <strong>{user.name}</strong>
                       <small>Nhắn tin</small>
@@ -832,7 +1071,11 @@ export default function App() {
                       disabled={pendingFollow.includes(user.id)}
                       onClick={() => void follow(user).catch((e) => notify(e.message))}
                     >
-                      {user.isFollowing ? 'Đã theo dõi' : 'Theo dõi'}
+                      {user.isFollowing
+                        ? 'Đã theo dõi'
+                        : user.requested
+                          ? 'Đã gửi yêu cầu'
+                          : 'Theo dõi'}
                     </button>
                   </div>
                 ))}
