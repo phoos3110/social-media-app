@@ -186,7 +186,7 @@ export default function Chat({
               onClick={() => void selectPeer(user)}
             >
               <Avatar user={user} />
-              <span>
+              <span className="conversation-content">
                 <strong>{user.name}</strong>
                 <small>{conversation?.lastMessage || `@${user.username}`}</small>
               </span>

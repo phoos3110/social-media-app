@@ -3,6 +3,7 @@ import pg from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { migrateNotifications } from './migrations.js';
 
 export async function createDatabase({ memory = false } = {}) {
   let driver;
@@ -66,5 +67,6 @@ export async function createDatabase({ memory = false } = {}) {
     `CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)`,
   ];
   for (const sql of statements) await db.query(sql);
+  await migrateNotifications(db);
   return db;
 }

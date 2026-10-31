@@ -453,7 +453,7 @@ label textarea {
   padding: 0;
   min-width: 0;
 }
-.user-link > span {
+.user-link > span:not(.avatar) {
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -1179,7 +1179,7 @@ label textarea {
 .conversation:hover {
   background: #f4f7ef;
 }
-.conversation > span {
+.conversation > .conversation-content {
   min-width: 0;
   flex: 1;
   display: flex;
@@ -1216,7 +1216,7 @@ label textarea {
   border-bottom: 1px solid #edf0e6;
   padding: 17px 22px;
 }
-.chat-header > span {
+.chat-header > span:not(.avatar) {
   display: flex;
   flex-direction: column;
   gap: 4px;

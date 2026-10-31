@@ -101,6 +101,14 @@ test('two people can post, edit, comment, follow, receive notifications and chat
   await expect(bob.locator('.message').getByText('Xin chào Alice!')).toBeVisible();
   await alice.locator('.topbar').getByRole('button', { name: 'Mở tin nhắn' }).click();
   await alice.locator('.conversation').filter({ hasText: 'Bob Tran' }).click();
+  for (const width of [393, 1440]) {
+    await alice.setViewportSize({ width, height: 852 });
+    if (width < 600) await alice.getByRole('button', { name: 'Quay lại danh sách' }).click();
+    const avatar = await alice.locator('.conversation .avatar').first().boundingBox();
+    expect(avatar).not.toBeNull();
+    expect(Math.abs(avatar!.width - avatar!.height)).toBeLessThan(1);
+    if (width < 600) await alice.locator('.conversation').filter({ hasText: 'Bob Tran' }).click();
+  }
   await expect(alice.locator('.message').getByText('Xin chào Alice!')).toBeVisible();
   await alice.getByLabel('Nội dung tin nhắn').fill('Chào Bob, tin nhắn đến ngay!');
   await alice.getByRole('button', { name: 'Gửi tin nhắn' }).click();

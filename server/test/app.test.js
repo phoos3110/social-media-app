@@ -7,6 +7,7 @@ import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { createDatabase } from '../src/db.js';
 import { createApp } from '../src/app.js';
+import { migrateNotifications } from '../src/migrations.js';
 
 let db, app, http, io, alice, bob, carol, aliceUser, bobUser, postId, commentId, cookie;
 const sockets = [];
@@ -224,4 +225,79 @@ test('deleting a post cascades interactions; unfollow and unlike are repeatable'
     [postId],
   );
   assert.equal(dangling.rows[0].count, 0);
+});
+
+test('follow and like toggles cannot spam notices, while separate comments still notify', async () => {
+  const target = (await carol.get('/api/auth/me').expect(200)).body.user.id;
+  const targetPost = (
+    await carol.post('/api/posts').send({ content: 'Notification test' }).expect(201)
+  ).body.post.id;
+  for (let index = 0; index < 4; index++) {
+    await bob.put(`/api/users/${target}/follow`).send({ following: true }).expect(200);
+    await bob.put(`/api/users/${target}/follow`).send({ following: false }).expect(200);
+    await bob.put(`/api/posts/${targetPost}/like`).send({ liked: true }).expect(200);
+    await bob.put(`/api/posts/${targetPost}/like`).send({ liked: false }).expect(200);
+  }
+  const initial = (await carol.get('/api/notifications').expect(200)).body;
+  assert.equal(initial.unread, 2);
+  assert.deepEqual(initial.notifications.map((n) => n.kind).sort(), ['follow', 'like']);
+  await carol.patch('/api/notifications/read').expect(200);
+  await Promise.all(
+    Array.from({ length: 5 }, () =>
+      bob.put(`/api/users/${target}/follow`).send({ following: true }).expect(200),
+    ),
+  );
+  await bob.put(`/api/posts/${targetPost}/like`).send({ liked: true }).expect(200);
+  assert.equal((await carol.get('/api/notifications').expect(200)).body.unread, 0);
+  for (const content of ['First comment', 'Another comment']) {
+    await bob.post(`/api/posts/${targetPost}/comments`).send({ content }).expect(201);
+  }
+  const final = (await carol.get('/api/notifications').expect(200)).body;
+  assert.equal(final.notifications.length, 4);
+  assert.equal(final.unread, 2);
+});
+
+test('migration merges historical duplicates, preserves unread state and is repeatable', async () => {
+  // All changes are confined to the disposable test database/schema.
+  await db.query('DROP INDEX notifications_follow_once');
+  await db.query('DROP INDEX notifications_like_once');
+  await db.query("DELETE FROM schema_migrations WHERE version='001_notification_dedup'");
+  const target = (await carol.get('/api/auth/me').expect(200)).body.user.id;
+  const latestId = randomUUID();
+  const likedPost = (
+    await db.query(
+      "SELECT post_id FROM notifications WHERE user_id=$1 AND actor_id=$2 AND kind='like'",
+      [target, bobUser.id],
+    )
+  ).rows[0].post_id;
+  await db.query(
+    "INSERT INTO notifications(id,user_id,actor_id,kind,post_id) VALUES($1,$2,$3,'like',$4)",
+    [randomUUID(), target, bobUser.id, likedPost],
+  );
+  await db.query(
+    `INSERT INTO notifications(id,user_id,actor_id,kind,read_at,created_at)
+    VALUES($1,$2,$3,'follow',NULL,NOW()-INTERVAL '1 day'),
+          ($4,$2,$3,'follow',NOW(),NOW()+INTERVAL '1 day')`,
+    [randomUUID(), target, bobUser.id, latestId],
+  );
+  await migrateNotifications(db);
+  await migrateNotifications(db);
+  const notices = (await carol.get('/api/notifications').expect(200)).body;
+  const follows = notices.notifications.filter(
+    (n) => n.kind === 'follow' && n.actor.id === bobUser.id,
+  );
+  assert.equal(follows.length, 1);
+  assert.equal(follows[0].id, latestId);
+  assert.equal(follows[0].readAt, null);
+  assert.equal(notices.notifications.filter((n) => n.kind === 'comment').length, 2);
+  assert.equal(notices.notifications.filter((n) => n.kind === 'like').length, 1);
+  // The database constraint also protects against concurrent direct inserts.
+  await assert.rejects(
+    db.query("INSERT INTO notifications(id,user_id,actor_id,kind) VALUES($1,$2,$3,'follow')", [
+      randomUUID(),
+      target,
+      bobUser.id,
+    ]),
+    (error) => error.code === '23505',
+  );
 });

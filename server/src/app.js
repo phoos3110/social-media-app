@@ -137,11 +137,11 @@ export function createApp(db, { testing = false } = {}) {
   }
   async function notify(userId, actorId, kind, postId = null) {
     if (userId === actorId) return;
-    await db.query(
-      'INSERT INTO notifications(id,user_id,actor_id,kind,post_id) VALUES($1,$2,$3,$4,$5)',
+    const inserted = await q(
+      'INSERT INTO notifications(id,user_id,actor_id,kind,post_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING id',
       [randomUUID(), userId, actorId, kind, postId],
     );
-    io.to(`user:${userId}`).emit('notification:new');
+    if (inserted.length) io.to(`user:${userId}`).emit('notification:new');
   }
   async function requirePost(postId) {
     const post = await one('SELECT * FROM posts WHERE id=$1', [id(postId)]);

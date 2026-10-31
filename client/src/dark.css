@@ -232,6 +232,9 @@ html[data-theme='dark'] .feed-tabs button.active {
 html[data-theme='dark'] .composer-input textarea:focus {
   background: var(--dark-input);
 }
+html[data-theme='dark'] :is(.conversation small, .chat-header small, .message small, .chat-hint) {
+  color: var(--dark-muted);
+}
 html[data-theme='dark']
   :is(
     .muted,
