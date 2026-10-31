@@ -301,3 +301,73 @@ test('migration merges historical duplicates, preserves unread state and is repe
     (error) => error.code === '23505',
   );
 });
+
+test('replies stay inside their post, notify the parent author, paginate and cascade on delete', async () => {
+  const targetPost = (
+    await carol.post('/api/posts').send({ content: 'Threaded discussion' }).expect(201)
+  ).body.post.id;
+  const otherPost = (
+    await carol.post('/api/posts').send({ content: 'Another discussion' }).expect(201)
+  ).body.post.id;
+  const root = (
+    await bob
+      .post(`/api/posts/${targetPost}/comments`)
+      .send({ content: 'Root comment' })
+      .expect(201)
+  ).body.comment;
+  assert.equal(root.parentId, null);
+  const reply = (
+    await alice
+      .post(`/api/posts/${targetPost}/comments`)
+      .send({ content: 'A reply', parentId: root.id })
+      .expect(201)
+  ).body.comment;
+  assert.equal(reply.parentId, root.id);
+  await alice
+    .post(`/api/posts/${otherPost}/comments`)
+    .send({ content: 'Wrong post', parentId: root.id })
+    .expect(404);
+  await alice
+    .post(`/api/posts/${targetPost}/comments`)
+    .send({ content: 'Not a root', parentId: reply.id })
+    .expect(404);
+  const roots = (await alice.get(`/api/posts/${targetPost}/comments`).expect(200)).body.comments;
+  assert.equal(roots.length, 1);
+  assert.equal(roots[0].replyCount, 1);
+  const replies = (
+    await bob.get(`/api/posts/${targetPost}/comments/${root.id}/replies`).expect(200)
+  ).body;
+  assert.equal(replies.comments[0].id, reply.id);
+  assert.equal(
+    (await bob.get(`/api/posts/${targetPost}/comments/${root.id}/replies?page=2`).expect(200)).body
+      .comments.length,
+    0,
+  );
+  const alerts = (await bob.get('/api/notifications').expect(200)).body.notifications;
+  assert.ok(
+    alerts.some(
+      (n) => n.kind === 'reply' && n.actor.id === aliceUser.id && n.postId === targetPost,
+    ),
+  );
+  await carol.delete(`/api/posts/${targetPost}/comments/${root.id}`).expect(403);
+  const deleted = (await bob.delete(`/api/posts/${targetPost}/comments/${root.id}`).expect(200))
+    .body;
+  assert.equal(deleted.commentCount, 0);
+  await alice.get(`/api/posts/${targetPost}/comments/${root.id}/replies`).expect(404);
+});
+
+test('follower and following lists include users, paginate and reject invalid requests', async () => {
+  await bob.put(`/api/users/${aliceUser.id}/follow`).send({ following: true }).expect(200);
+  const followers = (await alice.get(`/api/users/${aliceUser.id}/followers`).expect(200)).body;
+  assert.ok(followers.users.some((u) => u.id === bobUser.id));
+  assert.equal(followers.users[0].password_hash, undefined);
+  const following = (await alice.get(`/api/users/${bobUser.id}/following`).expect(200)).body;
+  assert.ok(following.users.some((u) => u.id === aliceUser.id));
+  assert.equal(
+    (await alice.get(`/api/users/${aliceUser.id}/followers?page=2`).expect(200)).body.users.length,
+    0,
+  );
+  await alice.get(`/api/users/${aliceUser.id}/followers?page=0`).expect(400);
+  await alice.get(`/api/users/${randomUUID()}/following`).expect(404);
+  await request(app).get(`/api/users/${aliceUser.id}/followers`).expect(401);
+});

@@ -60,6 +60,8 @@ export async function createDatabase({ memory = false } = {}) {
     `CREATE INDEX IF NOT EXISTS posts_timeline ON posts(created_at DESC,id DESC)`,
     `CREATE INDEX IF NOT EXISTS posts_author ON posts(user_id,created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS comments_post ON comments(post_id,created_at)`,
+    `ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES comments(id) ON DELETE CASCADE`,
+    `CREATE INDEX IF NOT EXISTS comments_parent ON comments(parent_id,created_at)`,
     `CREATE INDEX IF NOT EXISTS follows_target ON follows(following_id)`,
     `CREATE INDEX IF NOT EXISTS messages_pair ON messages(sender_id,recipient_id,created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS messages_recipient ON messages(recipient_id,created_at DESC)`,

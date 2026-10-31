@@ -272,6 +272,29 @@ export function createApp(db, { testing = false } = {}) {
       },
     });
   });
+  app.get('/api/users/:id/:relationship', async (req, res, next) => {
+    if (!['followers', 'following'].includes(req.params.relationship)) return next();
+    const target = id(req.params.id);
+    if (!(await one('SELECT id FROM users WHERE id=$1', [target])))
+      throw new HttpError(404, 'Không tìm thấy người dùng.');
+    const page = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10000)
+      .parse(req.query.page || 1);
+    const followers = req.params.relationship === 'followers';
+    const rows = await q(
+      `SELECT u.*, EXISTS(SELECT 1 FROM follows mine WHERE mine.follower_id=$1 AND mine.following_id=u.id) AS is_following
+      FROM follows f JOIN users u ON u.id=f.${followers ? 'follower_id' : 'following_id'}
+      WHERE f.${followers ? 'following_id' : 'follower_id'}=$2 ORDER BY u.name,u.id LIMIT 31 OFFSET $3`,
+      [req.user.id, target, (page - 1) * 30],
+    );
+    res.json({
+      users: rows.slice(0, 30).map((u) => ({ ...publicUser(u), isFollowing: u.is_following })),
+      hasMore: rows.length > 30,
+    });
+  });
   async function ownedImage(userId, uploadId) {
     if (!uploadId) return '';
     const asset = await one('SELECT url FROM uploads WHERE id=$1 AND user_id=$2', [
@@ -445,9 +468,10 @@ export function createApp(db, { testing = false } = {}) {
       .max(10000)
       .parse(req.query.page || 1);
     const rows = await q(
-      `SELECT c.*,row_to_json(u) AS author FROM comments c
+      `SELECT c.*,row_to_json(u) AS author,
+      (SELECT COUNT(*)::int FROM comments replies WHERE replies.parent_id=c.id) AS reply_count FROM comments c
       JOIN (SELECT id,username,name,bio,avatar,created_at FROM users) u ON u.id=c.user_id
-      WHERE c.post_id=$1 ORDER BY c.created_at DESC,c.id DESC LIMIT 21 OFFSET $2`,
+      WHERE c.post_id=$1 AND c.parent_id IS NULL ORDER BY c.created_at DESC,c.id DESC LIMIT 21 OFFSET $2`,
       [req.params.id, (page - 1) * 20],
     );
     res.json({
@@ -456,22 +480,74 @@ export function createApp(db, { testing = false } = {}) {
         content: c.content,
         author: publicUser(c.author),
         createdAt: c.created_at,
+        parentId: c.parent_id,
+        replyCount: c.reply_count,
+      })),
+      hasMore: rows.length > 20,
+    });
+  });
+  app.get('/api/posts/:postId/comments/:id/replies', async (req, res) => {
+    const parent = await one(
+      'SELECT id FROM comments WHERE id=$1 AND post_id=$2 AND parent_id IS NULL',
+      [id(req.params.id), id(req.params.postId)],
+    );
+    if (!parent) throw new HttpError(404, 'Bình luận không tồn tại.');
+    const page = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(10000)
+      .parse(req.query.page || 1);
+    const rows = await q(
+      `SELECT c.*,row_to_json(u) AS author FROM comments c
+      JOIN (SELECT id,username,name,bio,avatar,created_at FROM users) u ON u.id=c.user_id
+      WHERE c.parent_id=$1 ORDER BY c.created_at,c.id LIMIT 21 OFFSET $2`,
+      [parent.id, (page - 1) * 20],
+    );
+    res.json({
+      comments: rows.slice(0, 20).map((c) => ({
+        id: c.id,
+        content: c.content,
+        author: publicUser(c.author),
+        createdAt: c.created_at,
+        parentId: c.parent_id,
+        replyCount: 0,
       })),
       hasMore: rows.length > 20,
     });
   });
   app.post('/api/posts/:id/comments', async (req, res) => {
     const post = await requirePost(req.params.id);
-    const { content } = z.object({ content: text(2000) }).parse(req.body);
+    const { content, parentId } = z
+      .object({ content: text(2000), parentId: uuid.nullable().optional() })
+      .parse(req.body);
+    const parent = parentId
+      ? await one('SELECT * FROM comments WHERE id=$1 AND post_id=$2 AND parent_id IS NULL', [
+          parentId,
+          post.id,
+        ])
+      : null;
+    if (parentId && !parent)
+      throw new HttpError(404, 'Bình luận gốc không tồn tại trong bài viết này.');
     const commentId = randomUUID();
-    await db.query('INSERT INTO comments(id,post_id,user_id,content) VALUES($1,$2,$3,$4)', [
-      commentId,
-      post.id,
-      req.user.id,
-      content,
-    ]);
-    await notify(post.user_id, req.user.id, 'comment', post.id);
-    res.status(201).json({ ok: true });
+    const created = await one(
+      'INSERT INTO comments(id,post_id,user_id,content,parent_id) VALUES($1,$2,$3,$4,$5) RETURNING *',
+      [commentId, post.id, req.user.id, content, parentId || null],
+    );
+    if (parent) await notify(parent.user_id, req.user.id, 'reply', post.id);
+    if (!parent || parent.user_id !== post.user_id)
+      await notify(post.user_id, req.user.id, 'comment', post.id);
+    res.status(201).json({
+      ok: true,
+      comment: {
+        id: created.id,
+        content: created.content,
+        author: publicUser(req.user),
+        createdAt: created.created_at,
+        parentId: created.parent_id,
+        replyCount: 0,
+      },
+    });
   });
   app.delete('/api/posts/:postId/comments/:id', async (req, res) => {
     const comment = await one('SELECT * FROM comments WHERE id=$1 AND post_id=$2', [
@@ -482,7 +558,10 @@ export function createApp(db, { testing = false } = {}) {
     if (comment.user_id !== req.user.id)
       throw new HttpError(403, 'Bạn chỉ được xóa bình luận của mình.');
     await db.query('DELETE FROM comments WHERE id=$1', [comment.id]);
-    res.json({ ok: true });
+    const count = await one('SELECT COUNT(*)::int AS count FROM comments WHERE post_id=$1', [
+      comment.post_id,
+    ]);
+    res.json({ ok: true, commentCount: count.count });
   });
   app.get('/api/notifications', async (req, res) => {
     const page = z.coerce

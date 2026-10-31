@@ -31,8 +31,10 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
-  const dialog = page.getByRole('dialog');
-  const logout = page.getByRole('button', { name: 'Đăng xuất', exact: true });
+  const dialog = page.locator('.confirm-dialog');
+  const settings = page.getByRole('dialog', { name: 'Cài đặt', exact: true });
+  await page.getByRole('button', { name: 'Cài đặt', exact: true }).click();
+  const logout = settings.getByRole('button', { name: 'Đăng xuất', exact: true });
   await logout.click();
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
@@ -50,10 +52,11 @@ try {
   );
   await logout.click();
   await dialog.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Test logout error');
+  await expect(settings.getByRole('alert')).toContainText('Test logout error');
   await expect(logout).toBeEnabled();
   expect((await context.request.get('/api/auth/me')).status()).toBe(200);
   await page.unroute('**/api/auth/logout');
+  await settings.getByRole('button', { name: 'Đóng', exact: true }).click();
   console.log('Logout: cancel, Escape and API failure preserve session.');
 
   const postButton = page
@@ -163,6 +166,7 @@ try {
   await expect(article).toHaveCount(0);
   await expect(page.locator('.profile-stats > span').first()).toContainText('0');
   await page.setViewportSize({ width: 393, height: 852 });
+  await page.getByRole('button', { name: 'Cài đặt', exact: true }).click();
   await logout.click();
   await expect(dialog).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

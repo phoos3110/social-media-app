@@ -13,13 +13,14 @@
 ## Chức năng
 
 - Đăng ký, đăng nhập, đăng xuất; mật khẩu hash bcrypt và session cookie HttpOnly.
-- Hồ sơ, avatar, giới thiệu, theo dõi người dùng.
-- Đăng bài chữ/ảnh, sửa/xóa bài, like và bình luận.
+- Hồ sơ, avatar, giới thiệu, theo dõi người dùng; mở danh sách người theo dõi/đang theo dõi từ trang cá nhân.
+- Đăng bài chữ/ảnh, sửa/xóa bài, like, bình luận và trả lời theo nhóm; câu trả lời có phân trang.
 - Bảng tin chung/đang theo dõi, tìm kiếm và phân trang.
 - Chat một-một, lịch sử tin nhắn và trạng thái chưa đọc.
-- Thông báo real-time cho like, bình luận và follow.
+- Thông báo real-time cho like, bình luận, trả lời và follow.
 - Xác nhận trước khi đăng xuất, xóa hoặc bỏ nội dung sửa chưa lưu.
-- Dark mode lưu lựa chọn trên trình duyệt; thanh điều hướng mobile nằm trên cùng.
+- Cài đặt gom chế độ sáng/tối, cài PWA và đăng xuất; dark mode lưu lựa chọn trên trình duyệt.
+- Like phản hồi ngay, tuần tự hóa các lần bấm nhanh và hoàn tác khi API lỗi. Bình luận và chat hiện trạng thái đang gửi, khôi phục nội dung nếu gửi thất bại.
 
 ## Chạy bằng Docker
 

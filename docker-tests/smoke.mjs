@@ -52,7 +52,12 @@ try {
   await Promise.all([alice.goto('/'), bob.goto('/')]);
   await expect(alice.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(bob.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await bob.getByRole('button', { name: 'Cài đặt', exact: true }).click();
   await bob.getByRole('button', { name: 'Chuyển sang giao diện sáng' }).click();
+  await bob
+    .getByRole('dialog', { name: 'Cài đặt', exact: true })
+    .getByRole('button', { name: 'Đóng', exact: true })
+    .click();
   await bob.reload();
   await expect(bob.locator('html')).toHaveAttribute('data-theme', 'light');
   await expect(alice.getByRole('heading', { name: 'Bảng tin' })).toBeVisible();

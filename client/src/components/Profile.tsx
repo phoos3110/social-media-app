@@ -4,6 +4,7 @@ import type { User } from '../types/social';
 import { api, uploadImage } from '../lib/api';
 import { Avatar, Loading } from './ui';
 import { useConfirm } from '../lib/confirmation';
+import Relationships from './Relationships';
 
 export default function Profile({
   userId,
@@ -12,6 +13,7 @@ export default function Profile({
   onChat,
   onFollow,
   onError,
+  onProfile,
 }: {
   userId: string;
   me: User;
@@ -19,10 +21,12 @@ export default function Profile({
   onChat: (user: User) => void;
   onFollow: (user: User) => Promise<void>;
   onError: (message: string) => void;
+  onProfile: (id: string) => void;
 }) {
   const confirm = useConfirm();
   const actionLock = useRef(false);
   const [dirty, setDirty] = useState(false);
+  const [relationship, setRelationship] = useState<'followers' | 'following' | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -86,17 +90,22 @@ export default function Profile({
                   className={user.isFollowing ? 'secondary' : 'primary'}
                   disabled={busy}
                   onClick={async () => {
+                    if (actionLock.current) return;
+                    actionLock.current = true;
+                    const previous = user;
                     setBusy(true);
+                    setUser({
+                      ...user,
+                      isFollowing: !user.isFollowing,
+                      followers: Math.max(0, (user.followers || 0) + (user.isFollowing ? -1 : 1)),
+                    });
                     try {
                       await onFollow(user);
-                      setUser({
-                        ...user,
-                        isFollowing: !user.isFollowing,
-                        followers: (user.followers || 0) + (user.isFollowing ? -1 : 1),
-                      });
                     } catch (e) {
+                      setUser(previous);
                       onError((e as Error).message);
                     } finally {
+                      actionLock.current = false;
                       setBusy(false);
                     }
                   }}
@@ -201,16 +210,25 @@ export default function Profile({
               <span>
                 <strong>{user.postCount || 0}</strong> bài viết
               </span>
-              <span>
+              <button className="profile-stat-button" onClick={() => setRelationship('followers')}>
                 <strong>{user.followers || 0}</strong> người theo dõi
-              </span>
-              <span>
+              </button>
+              <button className="profile-stat-button" onClick={() => setRelationship('following')}>
                 <strong>{user.following || 0}</strong> đang theo dõi
-              </span>
+              </button>
             </div>
           </>
         )}
       </div>
+      {relationship && (
+        <Relationships
+          key={`${userId}:${relationship}`}
+          userId={userId}
+          kind={relationship}
+          onClose={() => setRelationship(null)}
+          onProfile={onProfile}
+        />
+      )}
     </section>
   );
 }

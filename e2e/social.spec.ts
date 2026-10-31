@@ -53,6 +53,133 @@ async function register(page: Page, name: string, username: string) {
   await expect(page.getByRole('heading', { name: 'Bảng tin' })).toBeVisible();
 }
 
+test('replies, connection lists and settings work; likes respond before slow requests and roll back failures', async ({
+  page,
+  browser,
+}) => {
+  await register(page, 'Linh Nguyen', 'linh_features');
+  const me = (await (await page.request.get('/api/auth/me')).json()).user;
+  const other = await browser.newContext();
+  try {
+    await other.request.post('http://localhost:4100/api/auth/register', {
+      data: {
+        name: 'Minh Tran',
+        username: 'minh_features',
+        email: 'minh_features@example.com',
+        password: 'password123',
+      },
+    });
+    const created = await page.request.post('/api/posts', {
+      data: { content: 'Feature interaction test' },
+    });
+    const post = (await created.json()).post;
+    await other.request.put(`http://localhost:4100/api/users/${me.id}/follow`, {
+      data: { following: true },
+    });
+    await other.request.post(`http://localhost:4100/api/posts/${post.id}/comments`, {
+      data: { content: 'Một bình luận gốc' },
+    });
+    await page.reload();
+    const article = page.locator('article').filter({ hasText: 'Feature interaction test' });
+    let releaseLike!: () => void;
+    let likeResponses = 0;
+    page.on('response', (response) => {
+      if (response.url().endsWith(`/posts/${post.id}/like`)) likeResponses++;
+    });
+    const likeGate = new Promise<void>((resolve) => {
+      releaseLike = resolve;
+    });
+    await page.route(`**/api/posts/${post.id}/like`, async (route) => {
+      await likeGate;
+      await route.continue();
+    });
+    await article.getByRole('button', { name: 'Thích', exact: true }).click();
+    await expect(article.getByRole('button', { name: 'Đã thích', exact: true })).toBeEnabled();
+    await article.getByRole('button', { name: 'Đã thích', exact: true }).click();
+    await expect(article.getByRole('button', { name: 'Thích', exact: true })).toBeEnabled();
+    releaseLike();
+    await expect.poll(() => likeResponses).toBe(2);
+    await expect
+      .poll(
+        async () => (await (await page.request.get(`/api/posts/${post.id}`)).json()).post.isLiked,
+      )
+      .toBe(false);
+    // Let both queued writes finish before testing a failure.
+    await expect
+      .poll(
+        async () => (await (await page.request.get(`/api/posts/${post.id}`)).json()).post.likeCount,
+      )
+      .toBe(0);
+    await page.unroute(`**/api/posts/${post.id}/like`);
+    await page.route(`**/api/posts/${post.id}/like`, (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Không thể lưu lượt thích thử nghiệm' }),
+      }),
+    );
+    await article.getByRole('button', { name: 'Thích', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('Không thể lưu lượt thích thử nghiệm');
+    await expect(article.getByRole('button', { name: 'Thích', exact: true })).toBeVisible();
+    await page.unroute(`**/api/posts/${post.id}/like`);
+    await article.getByRole('button', { name: 'Bình luận', exact: true }).click();
+    await expect(article.getByText('Một bình luận gốc', { exact: true })).toBeVisible();
+    await article.getByRole('button', { name: 'Trả lời', exact: true }).click();
+    await article.getByLabel('Nội dung bình luận', { exact: true }).fill('Cảm ơn Minh!');
+    let releaseComment!: () => void;
+    const commentGate = new Promise<void>((resolve) => {
+      releaseComment = resolve;
+    });
+    await page.route(`**/api/posts/${post.id}/comments`, async (route) => {
+      if (route.request().method() === 'POST') await commentGate;
+      await route.continue();
+    });
+    await article.getByRole('button', { name: 'Gửi bình luận' }).click();
+    await expect(
+      article.locator('.comment-replies').getByText('Cảm ơn Minh!', { exact: true }),
+    ).toBeVisible();
+    await expect(article.getByText('Đang gửi…', { exact: true })).toBeVisible();
+    releaseComment();
+    await expect(article.getByText('Đang gửi…', { exact: true })).toHaveCount(0);
+    await page.reload();
+    await article.getByRole('button', { name: 'Bình luận', exact: true }).click();
+    await article.getByRole('button', { name: 'Xem 1 câu trả lời' }).click();
+    await expect(
+      article.locator('.comment-replies').getByText('Cảm ơn Minh!', { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Hồ sơ của bạn' }).click();
+    await page
+      .locator('.profile-stats')
+      .getByRole('button', { name: '1 người theo dõi', exact: true })
+      .click();
+    await expect(
+      page.getByRole('dialog', { name: 'Người theo dõi' }).getByText('Minh Tran'),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page
+      .locator('.profile-stats')
+      .getByRole('button', { name: '0 đang theo dõi', exact: true })
+      .click();
+    await expect(page.getByRole('dialog', { name: 'Đang theo dõi' })).toContainText(
+      'Chưa có người dùng',
+    );
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 393, height: 852 });
+    await expect(page.getByRole('button', { name: 'Đăng xuất', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Cài đặt', exact: true }).click();
+    const settings = page.getByRole('dialog', { name: 'Cài đặt', exact: true });
+    await settings.locator('.theme-toggle').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await page.screenshot({ path: 'test-results/settings-mobile.png', fullPage: true });
+    await settings.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+    await page.locator('.confirm-dialog').getByRole('button', { name: 'Hủy', exact: true }).click();
+    expect((await page.request.get('/api/auth/me')).status()).toBe(200);
+    await settings.getByRole('button', { name: 'Đóng', exact: true }).click();
+  } finally {
+    await other.close();
+  }
+});
+
 test('two people can post, edit, comment, follow, receive notifications and chat in realtime', async ({
   browser,
 }) => {
@@ -147,6 +274,56 @@ test('auth screen fits mobile and shows login errors', async ({ page }) => {
     true,
   );
   await page.screenshot({ path: 'test-results/auth-mobile.png', fullPage: true });
+});
+
+test('chat shows a pending message immediately and preserves the next draft when refreshing the list fails', async ({
+  page,
+  browser,
+}) => {
+  const recipient = await browser.newContext();
+  try {
+    await recipient.request.post('http://localhost:4100/api/auth/register', {
+      data: {
+        name: 'Chat Recipient',
+        username: 'chat_recipient',
+        email: 'chat_recipient@example.com',
+        password: 'password123',
+      },
+    });
+    await register(page, 'Chat Sender', 'chat_sender');
+    await page.locator('.contact-row').filter({ hasText: 'Chat Recipient' }).click();
+    const input = page.getByRole('textbox', { name: 'Nội dung tin nhắn', exact: true });
+    await expect(input).toBeEnabled();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/api/messages/*', async (route) => {
+      if (route.request().method() === 'POST') await gate;
+      await route.continue();
+    });
+    await page.route('**/api/conversations', (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'List refresh failed' }),
+      }),
+    );
+    await input.fill('Immediate pending message');
+    await page.getByRole('button', { name: 'Gửi tin nhắn', exact: true }).click();
+    await expect(page.locator('.message').getByText('Immediate pending message')).toBeVisible();
+    await expect(page.locator('.message').getByText('Đang gửi…', { exact: true })).toBeVisible();
+    await expect(input).toHaveValue('');
+    await input.fill('Next unsent draft');
+    release();
+    await expect(page.locator('.message').getByText('Đang gửi…', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('status')).toContainText('List refresh failed');
+    await expect(input).toHaveValue('Next unsent draft');
+    await expect(page.locator('.message').getByText('Immediate pending message')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Gửi tin nhắn', exact: true })).toBeEnabled();
+  } finally {
+    await recipient.close();
+  }
 });
 
 test('image posts, avatar, search, cancel edit and deletion work in browser', async ({ page }) => {

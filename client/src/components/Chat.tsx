@@ -85,9 +85,20 @@ export default function Chat({
       void refreshConversations().catch((e) => onError(e.message));
       const current = peerRef.current;
       if (current && (message.senderId === current.id || message.recipientId === current.id)) {
-        setMessages((previous) =>
-          previous.some((m) => m.id === message.id) ? previous : [...previous, message],
-        );
+        setMessages((previous) => {
+          const withoutPending = previous.filter(
+            (m) =>
+              !(
+                m.id.startsWith('pending-') &&
+                m.senderId === message.senderId &&
+                m.recipientId === message.recipientId &&
+                m.content === message.content
+              ),
+          );
+          return withoutPending.some((m) => m.id === message.id)
+            ? withoutPending
+            : [...withoutPending, message];
+        });
         if (message.senderId === current.id) void read(current.id).catch((e) => onError(e.message));
       }
     };
@@ -263,7 +274,9 @@ export default function Chat({
                   key={message.id}
                 >
                   <p>{message.content}</p>
-                  <small>{timeAgo(message.createdAt)}</small>
+                  <small>
+                    {message.id.startsWith('pending-') ? 'Đang gửi…' : timeAgo(message.createdAt)}
+                  </small>
                 </div>
               ))}
               <div ref={end} />
@@ -277,20 +290,35 @@ export default function Chat({
                 setBusy(true);
                 const target = peer.id;
                 const content = draft;
+                const tempId = `pending-${crypto.randomUUID()}`;
+                setMessages((previous) => [
+                  ...previous,
+                  {
+                    id: tempId,
+                    senderId: me.id,
+                    recipientId: target,
+                    content,
+                    createdAt: new Date().toISOString(),
+                    readAt: null,
+                  },
+                ]);
+                setDraft('');
                 try {
                   const data = await api<{ message: Message }>(`/messages/${target}`, 'POST', {
                     content,
                   });
                   if (peerRef.current?.id === target) {
-                    setMessages((previous) =>
-                      previous.some((m) => m.id === data.message.id)
-                        ? previous
-                        : [...previous, data.message],
-                    );
-                    setDraft('');
+                    setMessages((previous) => {
+                      const confirmed = previous.filter((m) => m.id !== tempId);
+                      return confirmed.some((m) => m.id === data.message.id)
+                        ? confirmed
+                        : [...confirmed, data.message];
+                    });
                   }
-                  await refreshConversations();
+                  void refreshConversations().catch((error) => onError(error.message));
                 } catch (error) {
+                  setMessages((previous) => previous.filter((m) => m.id !== tempId));
+                  setDraft((previous) => previous || content);
                   onError((error as Error).message);
                 } finally {
                   sendLock.current = false;
@@ -299,7 +327,7 @@ export default function Chat({
               }}
             >
               <input
-                disabled={busy || loading}
+                disabled={loading}
                 aria-label="Nội dung tin nhắn"
                 placeholder="Nhắn một điều gì đó…"
                 value={draft}

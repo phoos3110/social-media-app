@@ -5,6 +5,7 @@ import './app.css';
 import './dark.css';
 import './confirm.css';
 import './pwa.css';
+import './features.css';
 import App from './App.tsx';
 import { ThemeProvider } from './components/Theme';
 import { applyTheme, readTheme } from './lib/theme';

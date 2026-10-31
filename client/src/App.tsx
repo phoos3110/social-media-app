@@ -19,6 +19,7 @@ import {
 import AuthPage from './components/AuthPage';
 import { InstallApp } from './components/Pwa';
 import { ThemeToggle } from './components/Theme';
+import Settings from './components/Settings';
 import { useConfirm } from './lib/confirmation';
 import Composer from './components/Composer';
 import FeedPost from './components/FeedPost';
@@ -32,6 +33,7 @@ type View = 'feed' | 'discover' | 'notifications' | 'messages' | 'profile';
 export default function App() {
   const confirm = useConfirm();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
   const logoutLock = useRef(false);
   const [profileVersion, setProfileVersion] = useState(0);
   const [readingNotices, setReadingNotices] = useState(false);
@@ -68,6 +70,7 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [focusedPost, setFocusedPost] = useState<SocialPost | null>(null);
   const [pendingFollow, setPendingFollow] = useState<string[]>([]);
+  const followLocks = useRef(new Set<string>());
   const feedRequest = useRef(0);
   const notify = useCallback((message: string) => setToast(message), []);
   function boot() {
@@ -220,23 +223,33 @@ export default function App() {
     navigate('messages');
   }
   async function follow(user: User) {
-    if (pendingFollow.includes(user.id)) return;
+    if (followLocks.current.has(user.id)) return;
+    followLocks.current.add(user.id);
     setPendingFollow((previous) => [...previous, user.id]);
+    setPeople((previous) =>
+      previous.map((p) =>
+        p.id === user.id
+          ? {
+              ...p,
+              isFollowing: !user.isFollowing,
+              followers: Math.max(0, (p.followers || 0) + (user.isFollowing ? -1 : 1)),
+            }
+          : p,
+      ),
+    );
     try {
       await api(`/users/${user.id}/follow`, 'PUT', { following: !user.isFollowing });
+    } catch (e) {
       setPeople((previous) =>
         previous.map((p) =>
           p.id === user.id
-            ? {
-                ...p,
-                isFollowing: !user.isFollowing,
-                followers: (p.followers || 0) + (user.isFollowing ? -1 : 1),
-              }
+            ? { ...p, isFollowing: user.isFollowing, followers: user.followers ?? p.followers }
             : p,
         ),
       );
-      setProfileVersion((version) => version + 1);
+      throw e;
     } finally {
+      followLocks.current.delete(user.id);
       setPendingFollow((previous) => previous.filter((id) => id !== user.id));
     }
   }
@@ -352,38 +365,56 @@ export default function App() {
             >
               {mobileSearchOpen ? <X size={20} /> : <Search size={20} />}
             </button>
-            <InstallApp />
-            <ThemeToggle />
-            <button
-              className="icon-button"
-              aria-label="Đăng xuất"
-              title="Đăng xuất"
-              disabled={loggingOut}
-              onClick={async () => {
-                if (logoutLock.current) return;
-                logoutLock.current = true;
-                try {
-                  if (
-                    !(await confirm({
-                      title: 'Đăng xuất khỏi Po?',
-                      message: 'Bạn sẽ cần đăng nhập lại để tiếp tục sử dụng tài khoản.',
-                      confirmLabel: 'Đăng xuất',
-                    }))
-                  )
-                    return;
-                  setLoggingOut(true);
-                  await api('/auth/logout', 'POST');
-                  setMe(null);
-                } catch (error) {
-                  notify((error as Error).message);
-                } finally {
-                  logoutLock.current = false;
-                  setLoggingOut(false);
-                }
-              }}
-            >
-              <LogOut size={20} />
-            </button>
+            <Settings>
+              <div className="setting-row">
+                <span>Giao diện sáng / tối</span>
+                <ThemeToggle />
+              </div>
+              <div className="setting-row setting-install">
+                <span>Cài Po lên thiết bị</span>
+                <InstallApp />
+              </div>
+              <div className="setting-row">
+                <span>Đăng xuất tài khoản</span>
+                <button
+                  className="icon-button"
+                  aria-label="Đăng xuất"
+                  title="Đăng xuất"
+                  disabled={loggingOut}
+                  onClick={async () => {
+                    if (logoutLock.current) return;
+                    logoutLock.current = true;
+                    try {
+                      if (
+                        !(await confirm({
+                          title: 'Đăng xuất khỏi Po?',
+                          message: 'Bạn sẽ cần đăng nhập lại để tiếp tục sử dụng tài khoản.',
+                          confirmLabel: 'Đăng xuất',
+                        }))
+                      )
+                        return;
+                      setLoggingOut(true);
+                      setLogoutError('');
+                      await api('/auth/logout', 'POST');
+                      setMe(null);
+                    } catch (error) {
+                      setLogoutError((error as Error).message);
+                      notify((error as Error).message);
+                    } finally {
+                      logoutLock.current = false;
+                      setLoggingOut(false);
+                    }
+                  }}
+                >
+                  <LogOut size={20} />
+                </button>
+              </div>
+              {logoutError && (
+                <p role="alert" className="form-error">
+                  {logoutError}
+                </p>
+              )}
+            </Settings>
             <span className={`connection-state ${connected ? '' : 'offline'}`}>
               <span className="status-dot" />
               {connected ? 'Đã kết nối' : 'Đang kết nối lại'}
@@ -481,16 +512,21 @@ export default function App() {
                     onChat={openChat}
                     onFollow={follow}
                     onError={notify}
+                    onProfile={openProfile}
                   />
                 )}
                 {view === 'feed' && (
                   <Composer
                     user={me}
                     onError={notify}
-                    onCreated={() => {
+                    onCreated={(post) => {
+                      setPosts((previous) => [post, ...previous.filter((p) => p.id !== post.id)]);
                       setSearch('');
                       setKeyword('');
-                      setRefresh((r) => r + 1);
+                      if (keyword || feed === 'following') {
+                        setFeed('all');
+                        setRefresh((r) => r + 1);
+                      }
                       notify('Đã chia sẻ câu chuyện của bạn.');
                     }}
                   />
@@ -678,7 +714,7 @@ export default function App() {
                               <span className="notice-kind" aria-hidden="true">
                                 {n.kind === 'like' ? (
                                   <Heart size={12} />
-                                ) : n.kind === 'comment' ? (
+                                ) : n.kind === 'comment' || n.kind === 'reply' ? (
                                   <MessageCircle size={12} />
                                 ) : (
                                   <Users size={12} />
@@ -692,7 +728,9 @@ export default function App() {
                                   ? 'đã thích bài viết của bạn.'
                                   : n.kind === 'comment'
                                     ? 'đã bình luận về bài viết của bạn.'
-                                    : 'đã bắt đầu theo dõi bạn.'}
+                                    : n.kind === 'reply'
+                                      ? 'đã trả lời bình luận của bạn.'
+                                      : 'đã bắt đầu theo dõi bạn.'}
                               </p>
                               <small>{timeAgo(n.createdAt)}</small>
                             </span>

@@ -21,11 +21,18 @@ export type SocialPost = {
   isLiked: boolean;
   commentCount: number;
 };
-export type PostComment = { id: string; author: User; content: string; createdAt: string };
+export type PostComment = {
+  id: string;
+  author: User;
+  content: string;
+  createdAt: string;
+  parentId: string | null;
+  replyCount: number;
+};
 export type Notice = {
   id: string;
   actor: User;
-  kind: 'like' | 'comment' | 'follow';
+  kind: 'like' | 'comment' | 'follow' | 'reply';
   postId: string | null;
   readAt: string | null;
   createdAt: string;

@@ -1,0 +1,156 @@
+.app-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(480px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--po-border);
+  border-radius: 16px;
+  background: var(--po-surface);
+  color: var(--po-text);
+  box-shadow: 0 20px 80px #0005;
+}
+.app-dialog::backdrop {
+  background: #0008;
+  backdrop-filter: blur(3px);
+}
+.dialog-body {
+  padding: 20px;
+}
+.dialog-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.dialog-heading h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.settings-actions {
+  display: grid;
+  gap: 8px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  gap: 16px;
+  border-radius: 12px;
+  background: var(--po-input);
+  font-size: 14px;
+}
+.setting-row .icon-button {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  background: var(--po-surface);
+  color: var(--po-text);
+}
+.setting-install:not(:has(.install-app)) {
+  display: none;
+}
+.relationship-list {
+  display: grid;
+  gap: 6px;
+}
+.relationship-user {
+  padding: 12px;
+  width: 100%;
+  border-radius: 12px;
+}
+.relationship-user:hover {
+  background: var(--po-hover);
+}
+.relationship-user small,
+.dialog-empty {
+  color: var(--po-muted);
+}
+.dialog-empty {
+  padding: 20px 0;
+  line-height: 1.6;
+}
+.profile-stat-button {
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.profile-stat-button:hover {
+  text-decoration: underline;
+}
+.comment-main {
+  flex: 1;
+  min-width: 0;
+}
+.comment-main .comment-bubble {
+  width: fit-content;
+  max-width: 100%;
+}
+.comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 10px;
+  color: var(--po-muted);
+  font-size: 12px;
+}
+.comment-meta button {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.comment-meta button:hover {
+  text-decoration: underline;
+}
+.comment-thread + .comment-thread {
+  margin-top: 12px;
+}
+.comment-replies {
+  margin: 6px 0 0 26px;
+  padding-left: 12px;
+  border-left: 2px solid var(--po-border);
+}
+.replies-toggle {
+  margin: 0 0 6px 44px;
+  padding: 4px 0;
+}
+.reply-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--po-muted);
+  font-size: 12px;
+  padding: 4px 0 10px;
+}
+.comment-pending {
+  opacity: 0.65;
+}
+.post-actions > button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.post-actions > button.liked svg {
+  animation: like-pop 0.2s ease-out;
+}
+@keyframes like-pop {
+  50% {
+    transform: scale(1.22);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-actions > button.liked svg {
+    animation: none;
+  }
+}
+@media (max-width: 600px) {
+  .dialog-body {
+    padding: 16px;
+  }
+  .comment-replies {
+    margin-left: 14px;
+    padding-left: 8px;
+  }
+}
