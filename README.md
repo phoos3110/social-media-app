@@ -134,6 +134,8 @@ Chạy `npm run test:pwa` khi stack Docker đang hoạt động để kiểm tra
 
 ## Triển khai public
 
+Deploy miễn phí lên Render với Neon và Cloudinary: xem [hướng dẫn từng bước](DEPLOY-RENDER.md) và cấu hình `render.yaml`.
+
 Compose hiện dành cho local: HTTP, mật khẩu database mặc định và cookie không có Secure. Trước khi public, cần HTTPS, domain trong `CLIENT_ORIGIN`, `COOKIE_SECURE=true`, mật khẩu riêng và cơ chế sao lưu. Dùng PostgreSQL cloud và Cloudinary nếu nền tảng không có ổ đĩa bền vững.
 
 Phiên bản hiện tại chạy một backend instance; nhiều instance cần adapter chia sẻ sự kiện Socket.IO và rate-limit store chung. Email verification, quên mật khẩu, chat nhóm, gọi video và moderation chưa được triển khai.

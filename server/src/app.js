@@ -37,6 +37,7 @@ export function createApp(db, { testing = false } = {}) {
   const http = createServer(app);
   const allowedOrigins = (
     process.env.CLIENT_ORIGIN ||
+    process.env.RENDER_EXTERNAL_URL ||
     'http://localhost:5180,http://127.0.0.1:5180,http://localhost:4180,http://127.0.0.1:4180'
   )
     .split(',')
@@ -600,7 +601,21 @@ export function createApp(db, { testing = false } = {}) {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API không tồn tại.' }));
   app.use('/uploads', express.static(uploadDir, { maxAge: '7d', dotfiles: 'deny' }));
   const clientDir = fileURLToPath(new URL('../../client/dist/', import.meta.url));
-  app.use(express.static(clientDir));
+  app.use(
+    express.static(clientDir, {
+      setHeaders(res, path) {
+        if (path.endsWith('/sw.js') || path.endsWith('\\sw.js')) {
+          res.set('Cache-Control', 'no-store');
+          res.set('Service-Worker-Allowed', '/');
+        } else if (path.endsWith('.webmanifest')) {
+          res.type('application/manifest+json');
+          res.set('Cache-Control', 'no-cache');
+        } else if (path.endsWith('.html')) {
+          res.set('Cache-Control', 'no-cache');
+        }
+      },
+    }),
+  );
   app.get('/{*path}', (_req, res, next) =>
     res.sendFile(`${clientDir}/index.html`, (error) => error && next(error)),
   );
