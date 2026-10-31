@@ -118,6 +118,9 @@ html[data-theme='dark'] .topbar-right > .icon-button {
   background: var(--dark-input);
   color: var(--dark-text);
 }
+html[data-theme='dark'] .header-nav > button:hover {
+  background: var(--dark-hover);
+}
 html[data-theme='dark'] .topbar-right > .icon-button:hover {
   background: #4e4f50;
 }
