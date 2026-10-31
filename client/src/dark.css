@@ -1,0 +1,185 @@
+.auth-theme-toggle {
+  position: fixed;
+  right: 22px;
+  top: 18px;
+  z-index: 50;
+  background: #e4e6eb;
+  color: #1c1e21;
+  width: 40px;
+  height: 40px;
+}
+html[data-theme='dark'] .empty h3 {
+  color: #e4e6eb;
+}
+html[data-theme='dark'] .suggestions {
+  background: #242526;
+}
+html[data-theme='dark'] {
+  --dark-bg: #18191a;
+  --dark-card: #242526;
+  --dark-input: #3a3b3c;
+  --dark-hover: #303132;
+  --dark-text: #e4e6eb;
+  --dark-muted: #b0b3b8;
+  --dark-border: #3e4042;
+  --dark-blue: #75b6ff;
+  background: var(--dark-bg);
+  color: var(--dark-text);
+}
+html[data-theme='dark'] body {
+  background: var(--dark-bg);
+}
+html[data-theme='dark'] :is(input, textarea) {
+  background: var(--dark-input);
+  color: var(--dark-text);
+  border-color: var(--dark-border);
+}
+html[data-theme='dark'] :is(input, textarea)::placeholder {
+  color: var(--dark-muted);
+}
+html[data-theme='dark'] :is(.card, .topbar, .auth-form, .mobile-nav, .dropdown, .toast) {
+  background: var(--dark-card);
+  color: var(--dark-text);
+  border-color: var(--dark-border);
+}
+html[data-theme='dark'] :is(.auth-layout, .auth-panel, .auth-story, .message-list) {
+  background: var(--dark-bg);
+}
+html[data-theme='dark']
+  :is(
+    .header-search,
+    .composer-input textarea,
+    .comment-form input,
+    .comment-bubble,
+    .chat-list > input,
+    .message-form input,
+    .auth-tabs,
+    .secondary,
+    .auth-theme-toggle
+  ) {
+  background: var(--dark-input);
+  color: var(--dark-text);
+  border-color: var(--dark-border);
+}
+html[data-theme='dark'] :is(.header-search input, .search-field input) {
+  background: transparent;
+}
+html[data-theme='dark'] .search-field {
+  background: var(--dark-card);
+  border-color: var(--dark-border);
+}
+html[data-theme='dark']
+  :is(
+    .post-content,
+    .profile-bio,
+    .auth-copy > p,
+    .auth-form label,
+    .auth-form h2,
+    .page-heading h1,
+    .chat-greeting h3,
+    .person-profile h3,
+    .profile-body h2,
+    .profile-stats strong,
+    .notice p,
+    .notice strong,
+    .comment-bubble p,
+    .post-header .user-link strong
+  ) {
+  color: var(--dark-text);
+}
+html[data-theme='dark']
+  :is(
+    .brand,
+    .text-button,
+    .suggestions-more,
+    .header-nav > button.active,
+    .mobile-nav button.active,
+    .post-actions > button.liked,
+    .comment-form > .icon-button
+  ) {
+  color: var(--dark-blue);
+}
+html[data-theme='dark']
+  :is(
+    .feed-tabs button.active,
+    .conversation.selected,
+    .notice.unread,
+    .follow-small,
+    .empty-icon
+  ) {
+  background: #263951;
+  color: var(--dark-blue);
+}
+html[data-theme='dark']
+  :is(.header-nav > button, .mobile-nav button, .icon-button, .auth-tabs button) {
+  color: var(--dark-muted);
+}
+html[data-theme='dark'] .topbar-right > .icon-button {
+  background: var(--dark-input);
+  color: var(--dark-text);
+}
+html[data-theme='dark'] .topbar-right > .icon-button:hover {
+  background: #4e4f50;
+}
+html[data-theme='dark'] .topbar-right > .theme-toggle {
+  color: #f7cf68;
+}
+html[data-theme='dark'] .auth-tabs button.active {
+  background: #263951;
+  color: var(--dark-blue);
+}
+html[data-theme='dark'] .follow-small.following {
+  background: var(--dark-input);
+  color: var(--dark-muted);
+}
+html[data-theme='dark']
+  :is(
+    .contacts-section,
+    .suggestions,
+    .composer-bottom,
+    .post-actions,
+    .comments,
+    .notice,
+    .chat-list,
+    .chat-header,
+    .message-form,
+    .conversation,
+    .mobile-nav
+  ) {
+  border-color: var(--dark-border);
+}
+html[data-theme='dark'] .incoming p {
+  background: var(--dark-input);
+  color: var(--dark-text);
+}
+html[data-theme='dark'] .outgoing p {
+  background: #0866ff;
+  color: #fff;
+}
+html[data-theme='dark'] .profile-cover {
+  background: linear-gradient(120deg, #1d3554, #263951 65%, #243042);
+}
+html[data-theme='dark'] .profile-cover > span:first-child {
+  color: #aac5e4;
+}
+html[data-theme='dark'] .profile-top > .avatar {
+  border-color: var(--dark-card);
+}
+html[data-theme='dark'] :is(.post-image, .composer-preview img) {
+  background: var(--dark-bg);
+}
+html[data-theme='dark'] .composer-preview .icon-button {
+  background: var(--dark-card);
+  color: var(--dark-text);
+}
+html[data-theme='dark'] .form-error {
+  background: #442b2b;
+  border-color: #754747;
+  color: #ffb2aa;
+}
+html[data-theme='dark'] .dropdown .danger {
+  color: #ffaaa2;
+}
+html[data-theme='dark'] .notification-icon > span {
+  border-color: var(--dark-card);
+}

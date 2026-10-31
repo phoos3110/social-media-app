@@ -1,0 +1,24 @@
+{
+  "name": "nhip-social",
+  "private": true,
+  "scripts": {
+    "lint": "npm run lint --prefix client",
+    "format:check": "prettier --check client/src server/src server/test docker-tests e2e",
+    "check": "npm run lint && npm run format:check && npm run build",
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "setup": "npm install && npm install --prefix server && npm install --prefix client",
+    "build": "npm run build --prefix client",
+    "start": "npm start --prefix server",
+    "test": "npm test --prefix server",
+    "test:e2e": "npm run build && playwright test",
+    "docker:up": "docker compose up -d --build --wait",
+    "docker:down": "docker compose down",
+    "test:docker": "node docker-tests/smoke.mjs",
+    "test:buttons": "node docker-tests/buttons.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.9.10"
+  }
+}

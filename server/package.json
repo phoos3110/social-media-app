@@ -1,0 +1,30 @@
+{
+  "name": "nhip-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate:local": "node src/migrate-local.js",
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "bcryptjs": "^3.0.2",
+    "cloudinary": "^2.7.0",
+    "cookie": "^1.0.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "sharp": "^0.35.5",
+    "socket.io": "^4.8.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1",
+    "supertest": "^7.1.4"
+  }
+}
