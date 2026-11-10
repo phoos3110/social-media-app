@@ -5,6 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { migrateNotifications } from './migrations.js';
 import { migrateFeatures } from './schema-features.js';
+import { migrateSocial } from './schema-social.js';
 
 export async function createDatabase({ memory = false, embeddedPath } = {}) {
   let driver;
@@ -72,5 +73,6 @@ export async function createDatabase({ memory = false, embeddedPath } = {}) {
   for (const sql of statements) await db.query(sql);
   await migrateNotifications(db);
   await migrateFeatures(db);
+  await migrateSocial(db);
   return db;
 }

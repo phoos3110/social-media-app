@@ -7,6 +7,10 @@ import { useDraft } from '../lib/drafts';
 import { usePresence } from '../lib/usePresence';
 import { Avatar, Loading } from './ui';
 import { useConfirm } from '../lib/confirmation';
+import ChatTools from './ChatTools';
+import MessageEditor from './MessageEditor';
+import { AttachmentView } from './Attachments';
+import GroupChat from './GroupChat';
 
 function mergeMessages(incoming: Message[], previous: Message[]) {
   const byId = new Map([...previous, ...incoming].map((message) => [message.id, message]));
@@ -56,6 +60,8 @@ export default function Chat({
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [groupMode, setGroupMode] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [people, setPeople] = useState<User[]>([]);
   const end = useRef<HTMLDivElement>(null);
   const peerRef = useRef(peer);
@@ -138,6 +144,17 @@ export default function Chat({
           })
           .catch((e) => onError(e.message));
     };
+    const onEdited = (message: Message) =>
+      setMessages((old) =>
+        old.map((m) =>
+          m.id === message.id
+            ? message
+            : m.replyTo?.id === message.id
+              ? { ...m, replyTo: { ...m.replyTo, content: message.content } }
+              : m,
+        ),
+      );
+    socket?.on('message:edited', onEdited);
     socket?.on('message:new', onMessage);
     const onReadMessage = ({ readerId, readAt }: { readerId: string; readAt: string }) =>
       setMessages((old) =>
@@ -181,6 +198,7 @@ export default function Chat({
     return () => {
       active = false;
       socket?.off('message:new', onMessage);
+      socket?.off('message:edited', onEdited);
       socket?.off('message:read', onReadMessage);
       socket?.off('message:recalled', onRecall);
       socket?.off('connect', reconnect);
@@ -258,9 +276,21 @@ export default function Chat({
     };
   }, [search, onError]);
   const choices = search ? people : conversations.map((c) => c.user);
+  if (groupMode)
+    return (
+      <>
+        <button className="secondary" onClick={() => setGroupMode(false)}>
+          Quay lại chat cá nhân
+        </button>
+        <GroupChat me={me} socket={socket} onError={onError} />
+      </>
+    );
   return (
     <section className={`card chat-layout ${peer ? 'has-peer' : ''}`}>
       <aside className="chat-list">
+        <button className="secondary" onClick={() => setGroupMode(true)}>
+          Chat nhóm
+        </button>
         <h2>
           Tin nhắn <MessageCircle size={20} />
         </h2>
@@ -317,6 +347,23 @@ export default function Chat({
                 </small>
               </span>
             </header>
+            <ChatTools
+              key={peer.id}
+              peer={peer}
+              onError={onError}
+              onMessage={(message) => {
+                setMessages((old) => mergeMessages([message], old));
+                void refreshConversations().catch((e) => onError(e.message));
+              }}
+            />
+            {editingMessage && (
+              <MessageEditor
+                message={editingMessage}
+                onError={onError}
+                onClose={() => setEditingMessage(null)}
+                onSaved={(message) => setMessages((old) => mergeMessages([message], old))}
+              />
+            )}
             <div className="message-list" aria-live="polite">
               {hasMore && (
                 <button
@@ -371,6 +418,8 @@ export default function Chat({
                   ) : (
                     <>
                       {message.content && <p>{message.content}</p>}
+                      {message.attachment && <AttachmentView attachment={message.attachment} />}
+                      {message.editedAt && <small>Đã chỉnh sửa</small>}
                       {message.image && (
                         <a href={message.image} target="_blank" rel="noreferrer">
                           <img
@@ -397,6 +446,15 @@ export default function Chat({
                       >
                         <Reply size={15} />
                       </button>
+                      {message.senderId === me.id && (
+                        <button
+                          className="icon-button"
+                          aria-label="Sửa tin nhắn"
+                          onClick={() => setEditingMessage(message)}
+                        >
+                          Sửa
+                        </button>
+                      )}
                       {message.senderId === me.id && (
                         <button
                           className="icon-button"

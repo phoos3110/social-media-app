@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Send, Trash2, X, Pencil } from 'lucide-react';
 import type { PostComment, User } from '../types/social';
+import RichText from './RichText';
 import { api, timeAgo, ApiError } from '../lib/api';
 import { useConfirm } from '../lib/confirmation';
 import { Avatar, Loading } from './ui';
@@ -372,7 +373,9 @@ export default function Comments({
                 </button>
               </form>
             ) : (
-              <p>{comment.content}</p>
+              <p>
+                <RichText text={comment.content} />
+              </p>
             )}
           </div>
           <div className="comment-meta">

@@ -38,6 +38,10 @@ const tables = [
   'reports',
   'push_subscriptions',
   'media_cleanup',
+  'post_preferences',
+  'groups',
+  'group_members',
+  'group_messages',
 ];
 try {
   await target.connect();
@@ -68,7 +72,8 @@ try {
         columns.map((c) =>
           c === deferred
             ? null
-            : ['media', 'subscription'].includes(c)
+            : ['media', 'subscription', 'attachment', 'notification_preferences'].includes(c) &&
+                row[c] !== null
               ? JSON.stringify(row[c])
               : row[c],
         ),

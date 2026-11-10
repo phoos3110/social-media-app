@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import type { SocialPost, User } from '../types/social';
 import { Avatar, Loading } from './ui';
 import Modal from './Modal';
+import RichText from './RichText';
 import YouTubeSong from './YouTubeSong';
 export function PostMedia({ post }: { post: SocialPost }) {
   const media = post.media?.length
@@ -13,7 +14,13 @@ export function PostMedia({ post }: { post: SocialPost }) {
       : [];
   return (
     <>
-      {post.youtubeId && <YouTubeSong id={post.youtubeId} />}
+      {post.youtubeId && (
+        <div className="song-card">
+          {post.songTitle && <strong>{post.songTitle}</strong>}
+          {post.songArtist && <small>{post.songArtist}</small>}
+          <YouTubeSong id={post.youtubeId} />
+        </div>
+      )}
       {media.length ? (
         <div className={`post-media-grid media-count-${Math.min(media.length, 4)}`}>
           {media.map((m, i) =>
@@ -78,7 +85,9 @@ export function SharedPreview({ postId }: { postId: string }) {
               <small>Xem bài viết gốc</small>
             </span>
           </button>
-          <p>{post.content}</p>
+          <p>
+            <RichText text={post.content} />
+          </p>
           <PostMedia post={post} />
         </>
       ) : (

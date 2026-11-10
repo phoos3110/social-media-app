@@ -19,11 +19,20 @@ export async function processMediaCleanup(db) {
             api_secret: process.env.CLOUDINARY_API_SECRET,
           });
           await cloudinary.uploader.destroy(row.public_id, {
-            resource_type: row.kind === 'video' ? 'video' : 'image',
+            resource_type:
+              row.kind === 'file'
+                ? 'raw'
+                : ['video', 'audio'].includes(row.kind)
+                  ? 'video'
+                  : 'image',
             type: row.delivery_type === 'authenticated' ? 'authenticated' : 'upload',
             invalidate: true,
           });
-        } else if (/^\/uploads\/[a-f0-9-]+\.(webp|mp4|webm)$/.test(row.source_url)) {
+        } else if (
+          /^\/uploads\/[a-f0-9-]+\.(webp|mp4|webm|pdf|txt|zip|ogg|mp3|m4a|wav)$/.test(
+            row.source_url,
+          )
+        ) {
           await unlink(fileURLToPath(new URL(`..${row.source_url}`, import.meta.url))).catch(
             (e) => {
               if (e.code !== 'ENOENT') throw e;

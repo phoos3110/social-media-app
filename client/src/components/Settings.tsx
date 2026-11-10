@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import Modal from './Modal';
 import AccountPanel from './AccountPanel';
+import NotificationPreferences from './NotificationPreferences';
 import type { User } from '../types/social';
 
 export default function Settings({
@@ -52,6 +53,7 @@ export default function Settings({
             Bài viết đã lưu
           </button>
           <AccountPanel me={me} onSaved={onChanged} initialTab={initialTab} />
+          <NotificationPreferences />
         </Modal>
       )}
     </>

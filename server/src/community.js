@@ -7,6 +7,8 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 export function visiblePost(alias = 'p', viewer = '$1') {
   return `EXISTS(SELECT 1 FROM users author WHERE author.id=${alias}.user_id AND author.banned=FALSE
     AND (author.id=${viewer} OR author.is_private=FALSE OR EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=${viewer} AND f.following_id=author.id)))
+    AND (${alias}.user_id=${viewer} OR ${alias}.audience='public' OR (${alias}.audience='followers' AND EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=${viewer} AND f.following_id=${alias}.user_id)))
+    AND (${alias}.expires_at IS NULL OR ${alias}.expires_at>NOW())
     AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=${viewer} AND b.target_id=${alias}.user_id) OR (b.target_id=${viewer} AND b.user_id=${alias}.user_id))`;
 }
 export function communityRoutes({
@@ -18,6 +20,7 @@ export function communityRoutes({
   postJSON,
   requirePost,
   ownedImage,
+  mentions,
 }) {
   const q = async (s, p = []) => (await db.query(s, p)).rows;
   const one = async (s, p = []) => (await q(s, p))[0];
@@ -192,6 +195,7 @@ export function communityRoutes({
     if (!comment) throw fail(404, 'Bình luận không tồn tại.');
     if (comment.user_id !== req.user.id) throw fail(403, 'Bạn chỉ được sửa bình luận của mình.');
     await db.query('UPDATE comments SET content=$1 WHERE id=$2', [content, comment.id]);
+    await mentions(content, req.user.id, comment.post_id, comment.id);
     changed(comment.post_id);
     res.json({ content });
   });

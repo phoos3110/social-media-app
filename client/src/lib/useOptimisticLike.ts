@@ -43,6 +43,11 @@ export function useOptimisticLike(
           liked: target,
         });
         confirmed.current = { liked: data.post.isLiked, count: data.post.likeCount };
+        latest.current = {
+          ...latest.current,
+          myReaction: data.post.myReaction,
+          reactions: data.post.reactions,
+        };
         show();
       }
     } catch (error) {

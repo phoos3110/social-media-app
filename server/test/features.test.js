@@ -490,3 +490,354 @@ test('YouTube songs persist, validate links and survive caption edits', async ()
   }
   await agent.post('/api/posts').send({ youtubeUrl: '' }).expect(400);
 });
+
+test('post audiences protect direct reads, feeds, shared previews and media URLs', async () => {
+  const owner = await person('audience'),
+    viewer = await person('viewer'),
+    stranger = await person('stranger');
+  const asset = await owner.agent
+    .post('/api/uploads')
+    .attach('image', await image(), 'private.png')
+    .expect(201);
+  const created = await owner.agent
+    .post('/api/posts')
+    .send({ content: 'followers only', audience: 'followers', uploadIds: [asset.body.id] })
+    .expect(201);
+  const id = created.body.post.id;
+  await viewer.agent.get(`/api/posts/${id}`).expect(404);
+  await viewer.agent.get(asset.body.url).expect(403);
+  await viewer.agent.post('/api/posts').send({ sharedPostId: id }).expect(404);
+  await viewer.agent
+    .put(`/api/users/${owner.user.id}/follow`)
+    .send({ following: true })
+    .expect(200);
+  await viewer.agent.get(`/api/posts/${id}`).expect(200);
+  await viewer.agent.get(asset.body.url).expect(200);
+  await stranger.agent.get(asset.body.url).expect(403);
+  await owner.agent
+    .patch(`/api/posts/${id}`)
+    .send({ content: 'only me', audience: 'private' })
+    .expect(200);
+  await viewer.agent.get(`/api/posts/${id}`).expect(404);
+  await viewer.agent.get(asset.body.url).expect(403);
+});
+
+test('editing media retains only existing assets, appends owned uploads and replaces songs', async () => {
+  const owner = await person('editor'),
+    other = await person('other');
+  const first = await owner.agent
+    .post('/api/uploads')
+    .attach('image', await image(), 'first.png')
+    .expect(201);
+  const second = await owner.agent
+    .post('/api/uploads')
+    .attach('image', await image(), 'second.png')
+    .expect(201);
+  const foreign = await other.agent
+    .post('/api/uploads')
+    .attach('image', await image(), 'foreign.png')
+    .expect(201);
+  const post = await owner.agent
+    .post('/api/posts')
+    .send({
+      content: 'original',
+      uploadIds: [first.body.id],
+      youtubeUrl: 'https://youtu.be/dQw4w9WgXcQ',
+    })
+    .expect(201);
+  const id = post.body.post.id;
+  await other.agent.patch(`/api/posts/${id}`).send({ content: 'hijack' }).expect(403);
+  await owner.agent
+    .patch(`/api/posts/${id}`)
+    .send({ content: 'bad', retainedMedia: [foreign.body.url] })
+    .expect(400);
+  await owner.agent
+    .patch(`/api/posts/${id}`)
+    .send({ content: 'bad', retainedMedia: [], uploadIds: [foreign.body.id] })
+    .expect(400);
+  const edited = await owner.agent
+    .patch(`/api/posts/${id}`)
+    .send({
+      content: '',
+      retainedMedia: [],
+      uploadIds: [second.body.id],
+      youtubeUrl: 'https://youtu.be/M7lc1UVf-VE',
+      songTitle: 'New song',
+      songArtist: 'Artist',
+    })
+    .expect(200);
+  assert.deepEqual(edited.body.post.media, [{ url: second.body.url, kind: 'image' }]);
+  assert.equal(edited.body.post.youtubeId, 'M7lc1UVf-VE');
+  assert.equal(edited.body.post.songTitle, 'New song');
+  await owner.agent
+    .patch(`/api/posts/${id}`)
+    .send({ content: '', retainedMedia: [], youtubeUrl: '' })
+    .expect(400);
+});
+
+test('hidden posts, muted notifications, preferences and reactions persist', async () => {
+  const owner = await person('controls'),
+    reader = await person('reader');
+  const created = await owner.agent
+    .post('/api/posts')
+    .send({ content: 'controls post' })
+    .expect(201);
+  const id = created.body.post.id;
+  await reader.agent.put(`/api/posts/${id}/preferences`).send({ hidden: true }).expect(200);
+  assert.equal(
+    (await reader.agent.get('/api/posts?author=' + owner.user.id).expect(200)).body.posts.length,
+    0,
+  );
+  assert.equal(
+    (await reader.agent.get('/api/account/hidden-posts').expect(200)).body.posts[0].id,
+    id,
+  );
+  await reader.agent.put(`/api/posts/${id}/preferences`).send({ hidden: false }).expect(200);
+  assert.equal(
+    (await reader.agent.get('/api/posts?author=' + owner.user.id).expect(200)).body.posts.length,
+    1,
+  );
+  await owner.agent.put(`/api/posts/${id}/preferences`).send({ muted: true }).expect(200);
+  let result = await reader.agent
+    .put(`/api/posts/${id}/reaction`)
+    .send({ reaction: 'love' })
+    .expect(200);
+  assert.equal(result.body.post.myReaction, 'love');
+  assert.equal(result.body.post.reactions.love, 1);
+  assert.equal(
+    (await owner.agent.get('/api/notifications').expect(200)).body.notifications.length,
+    0,
+  );
+  result = await reader.agent
+    .put(`/api/posts/${id}/reaction`)
+    .send({ reaction: 'haha' })
+    .expect(200);
+  assert.equal(result.body.post.likeCount, 1);
+  assert.equal(result.body.post.reactions.love, undefined);
+  await reader.agent.put(`/api/posts/${id}/reaction`).send({ reaction: null }).expect(200);
+  const preferences = {
+    like: false,
+    comment: true,
+    reply: true,
+    follow: true,
+    request: true,
+    mention: false,
+    message: false,
+  };
+  await owner.agent.put('/api/account/notifications').send(preferences).expect(200);
+  assert.deepEqual(
+    (await owner.agent.get('/api/account/notifications').expect(200)).body.preferences,
+    preferences,
+  );
+  await owner.agent.put(`/api/posts/${id}/preferences`).send({ muted: false }).expect(200);
+  await reader.agent.put(`/api/posts/${id}/reaction`).send({ reaction: 'like' }).expect(200);
+  assert.equal(
+    (await owner.agent.get('/api/notifications').expect(200)).body.notifications.length,
+    0,
+  );
+});
+
+test('mentions notify visible recipients once, hashtags respect privacy, stories expire', async () => {
+  const author = await person('tagger'),
+    target = await person('tagged');
+  const content = `Hello @${target.user.username} #musicexpansion`;
+  const post = await author.agent.post('/api/posts').send({ content }).expect(201);
+  let notices = (await target.agent.get('/api/notifications').expect(200)).body.notifications;
+  assert.equal(notices.filter((n) => n.kind === 'mention').length, 1);
+  await author.agent
+    .patch('/api/posts/' + post.body.post.id)
+    .send({ content })
+    .expect(200);
+  notices = (await target.agent.get('/api/notifications').expect(200)).body.notifications;
+  assert.equal(notices.filter((n) => n.kind === 'mention').length, 1);
+  await author.agent
+    .post('/api/posts')
+    .send({ content: `@${target.user.username} #secretunique`, audience: 'private' })
+    .expect(201);
+  assert.equal(
+    (await target.agent.get('/api/tags').expect(200)).body.tags.some(
+      (t) => t.tag === 'secretunique',
+    ),
+    false,
+  );
+  assert.equal(
+    (await target.agent.get('/api/tags').expect(200)).body.tags.some(
+      (t) => t.tag === 'musicexpansion',
+    ),
+    true,
+  );
+  const story = await author.agent
+    .post('/api/posts')
+    .send({ content: 'temporary', kind: 'story' })
+    .expect(201);
+  assert.ok(story.body.post.expiresAt);
+  assert.equal(
+    (await target.agent.get('/api/posts?kind=story&author=' + author.user.id).expect(200)).body
+      .posts.length,
+    1,
+  );
+  await db.query("UPDATE posts SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1", [
+    story.body.post.id,
+  ]);
+  await target.agent.get('/api/posts/' + story.body.post.id).expect(404);
+  await author.agent.post('/api/posts').send({ content: 'no video', kind: 'reel' }).expect(400);
+});
+
+test('message edits, paginated search and file downloads enforce conversation ownership', async () => {
+  const a = await person('filesender'),
+    b = await person('filereader'),
+    c = await person('outsider');
+  const asset = await a.agent
+    .post('/api/attachments')
+    .field('kind', 'file')
+    .attach('file', Buffer.from('private document'), 'notes.txt')
+    .expect(201);
+  await b.agent.get(asset.body.url).expect(403);
+  const sent = await a.agent
+    .post('/api/messages/' + b.user.id)
+    .send({ content: 'find original', attachmentId: asset.body.id })
+    .expect(201);
+  const id = sent.body.message.id;
+  const download = await b.agent.get(asset.body.url).expect(200);
+  assert.match(download.headers['content-disposition'], /^attachment/);
+  await c.agent.get(asset.body.url).expect(403);
+  await b.agent
+    .patch('/api/messages/' + id)
+    .send({ content: 'hijack' })
+    .expect(403);
+  const edited = await a.agent
+    .patch('/api/messages/' + id)
+    .send({ content: 'search changed' })
+    .expect(200);
+  assert.ok(edited.body.message.editedAt);
+  assert.equal(
+    (await b.agent.get(`/api/messages/${a.user.id}?search=changed`).expect(200)).body.messages
+      .length,
+    1,
+  );
+  assert.equal(
+    (await b.agent.get(`/api/messages/${a.user.id}?search=original`).expect(200)).body.messages
+      .length,
+    0,
+  );
+  await a.agent.delete('/api/messages/' + id).expect(200);
+  await b.agent.get(asset.body.url).expect(403);
+  await a.agent
+    .patch('/api/messages/' + id)
+    .send({ content: 'resurrect' })
+    .expect(400);
+  await a.agent
+    .post('/api/attachments')
+    .attach('file', Buffer.from('<script>bad</script>'), 'bad.pdf')
+    .expect(400);
+});
+
+test('group membership gates histories, attachments and sending; removed members lose access', async () => {
+  const a = await person('leader'),
+    b = await person('member'),
+    c = await person('nonmember');
+  const group = await a.agent
+    .post('/api/groups')
+    .send({ name: 'Music friends', userIds: [b.user.id] })
+    .expect(201);
+  const id = group.body.id;
+  assert.equal((await b.agent.get('/api/groups').expect(200)).body.groups[0].id, id);
+  await c.agent.get(`/api/groups/${id}/messages`).expect(404);
+  await c.agent.post(`/api/groups/${id}/messages`).send({ content: 'intruder' }).expect(404);
+  const asset = await a.agent
+    .post('/api/attachments')
+    .attach('file', Buffer.from('group document'), 'group.txt')
+    .expect(201);
+  const sent = await a.agent
+    .post(`/api/groups/${id}/messages`)
+    .send({ content: 'group hello', attachmentId: asset.body.id })
+    .expect(201);
+  await b.agent.get(asset.body.url).expect(200);
+  await c.agent.get(asset.body.url).expect(403);
+  await b.agent.put(`/api/groups/${id}/members/${c.user.id}`).expect(403);
+  await a.agent.put(`/api/groups/${id}/members/${c.user.id}`).expect(200);
+  await c.agent.get(`/api/groups/${id}/messages`).expect(200);
+  await a.agent.delete(`/api/groups/${id}/members/${b.user.id}`).expect(200);
+  await b.agent.get(`/api/groups/${id}/messages`).expect(404);
+  await b.agent.get(asset.body.url).expect(403);
+  await a.agent.delete(`/api/groups/${id}/messages/${sent.body.message.id}`).expect(200);
+  await c.agent.get(asset.body.url).expect(403);
+});
+
+test('call signaling allows only accepted participants and rejects blocked callers', async () => {
+  const a = await person('caller'),
+    b = await person('callee'),
+    c = await person('spy');
+  const sa = await socketFor(a),
+    sb = await socketFor(b),
+    sc = await socketFor(c);
+  const incoming = once(sb, 'call:incoming');
+  const result = await sa
+    .timeout(4000)
+    .emitWithAck('call:start', { recipientId: b.user.id, video: false });
+  assert.ok(result.callId);
+  assert.equal((await incoming).callId, result.callId);
+  const invalid = await sc.timeout(4000).emitWithAck('call:accept', { callId: result.callId });
+  assert.ok(invalid.error);
+  const accepted = once(sa, 'call:accepted');
+  assert.equal(
+    (await sb.timeout(4000).emitWithAck('call:accept', { callId: result.callId })).ok,
+    true,
+  );
+  await accepted;
+  const signal = once(sb, 'call:signal');
+  sa.emit('call:signal', {
+    callId: result.callId,
+    description: { type: 'offer', sdp: 'test-sdp' },
+  });
+  assert.equal((await signal).description.sdp, 'test-sdp');
+  const ended = once(sb, 'call:ended');
+  sa.emit('call:end', { callId: result.callId });
+  await ended;
+  await b.agent.put(`/api/users/${a.user.id}/block`).send({ blocked: true }).expect(200);
+  const denied = await sa
+    .timeout(4000)
+    .emitWithAck('call:start', { recipientId: b.user.id, video: true });
+  assert.ok(denied.error);
+});
+
+test('YouTube metadata and search normalize provider responses without accepting arbitrary origins', async () => {
+  const user = await person('songsearch');
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.YOUTUBE_API_KEY;
+  try {
+    delete process.env.YOUTUBE_API_KEY;
+    await user.agent.get('/api/youtube/search?q=music').expect(503);
+    await user.agent.get('/api/youtube/metadata?url=https://example.com/secret').expect(400);
+    globalThis.fetch = async (url) => {
+      const target = new URL(url);
+      if (target.hostname === 'www.youtube.com')
+        return { ok: true, json: async () => ({ title: 'A song', author_name: 'An artist' }) };
+      assert.equal(target.hostname, 'www.googleapis.com');
+      assert.equal(target.searchParams.get('type'), 'video');
+      assert.equal(target.searchParams.get('q'), 'music');
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              id: { videoId: 'dQw4w9WgXcQ' },
+              snippet: { title: 'A song', channelTitle: 'An artist' },
+            },
+          ],
+        }),
+      };
+    };
+    const metadata = await user.agent
+      .get('/api/youtube/metadata?url=https://youtu.be/dQw4w9WgXcQ')
+      .expect(200);
+    assert.deepEqual(metadata.body, { id: 'dQw4w9WgXcQ', title: 'A song', artist: 'An artist' });
+    process.env.YOUTUBE_API_KEY = 'test-key';
+    const result = await user.agent.get('/api/youtube/search?q=music').expect(200);
+    assert.deepEqual(result.body.songs, [metadata.body]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.YOUTUBE_API_KEY;
+    else process.env.YOUTUBE_API_KEY = originalKey;
+  }
+});

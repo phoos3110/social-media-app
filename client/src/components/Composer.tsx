@@ -6,6 +6,7 @@ import type { SocialPost, User } from '../types/social';
 import { Avatar } from './ui';
 import { youtubeId } from '../lib/youtube';
 import YouTubeSong from './YouTubeSong';
+import SongDetails from './SongDetails';
 type Asset = { id: string; url: string; kind: 'image' | 'video' };
 export default function Composer({
   user,
@@ -19,6 +20,10 @@ export default function Composer({
   const [content, setContent] = useDraft('po:draft:' + user.id + ':post');
   const [youtubeUrl, setYoutubeUrl] = useDraft('po:draft:' + user.id + ':youtube');
   const [showYoutube, setShowYoutube] = useState(Boolean(youtubeUrl));
+  const [songTitle, setSongTitle] = useDraft('po:draft:' + user.id + ':song-title');
+  const [songArtist, setSongArtist] = useDraft('po:draft:' + user.id + ':song-artist');
+  const [audience, setAudience] = useDraft('po:draft:' + user.id + ':audience');
+  const [kind, setKind] = useDraft('po:draft:' + user.id + ':kind');
   const songId = youtubeId(youtubeUrl);
   const invalidSong = Boolean(youtubeUrl.trim()) && !songId;
   const [stored, setStored] = useDraft('po:draft:' + user.id + ':media');
@@ -58,12 +63,19 @@ export default function Composer({
           const data = await api<{ post: SocialPost }>('/posts', 'POST', {
             content,
             youtubeUrl,
+            songTitle,
+            songArtist,
+            audience: audience || 'public',
+            kind: kind || 'post',
             uploadIds: assets.map((a) => a.id),
           });
           onCreated(data.post);
           setContent('');
           setStored('');
           setYoutubeUrl('');
+          setSongTitle('');
+          setSongArtist('');
+          setKind('');
           setShowYoutube(false);
         } catch (e) {
           onError((e as Error).message);
@@ -129,6 +141,9 @@ export default function Composer({
               disabled={busy}
               onClick={() => {
                 setYoutubeUrl('');
+                setSongTitle('');
+                setSongArtist('');
+                setKind('');
                 setShowYoutube(false);
               }}
             >
@@ -140,9 +155,60 @@ export default function Composer({
               ? 'Link không hợp lệ. Hãy dán link video từ YouTube.'
               : 'Hỗ trợ youtube.com, youtu.be và music.youtube.com.'}
           </small>
+          <SongDetails
+            url={youtubeUrl}
+            title={songTitle}
+            artist={songArtist}
+            disabled={busy}
+            onChange={(song) => {
+              setYoutubeUrl(song.url);
+              setSongTitle(song.title);
+              setSongArtist(song.artist);
+            }}
+          />
           {songId && <YouTubeSong key={songId} id={songId} />}
         </div>
       )}
+      <details className="composer-options">
+        <summary aria-label="Tùy chọn bài đăng">
+          {kind === 'story' ? 'Story · 24 giờ' : kind === 'reel' ? 'Reel' : 'Bài viết'} ·{' '}
+          {audience === 'private'
+            ? 'Chỉ mình tôi'
+            : audience === 'followers'
+              ? 'Người theo dõi'
+              : user.isPrivate
+                ? 'Tài khoản riêng tư'
+                : 'Công khai'}
+        </summary>
+        <div className="composer-option-fields">
+          <label>
+            Quyền xem
+            <select
+              aria-label="Quyền xem bài mới"
+              value={audience || 'public'}
+              disabled={busy}
+              onChange={(e) => setAudience(e.target.value)}
+            >
+              <option value="public">Công khai (theo quyền tài khoản)</option>
+              <option value="followers">Người theo dõi</option>
+              <option value="private">Chỉ mình tôi</option>
+            </select>
+          </label>
+          <label>
+            Loại bài
+            <select
+              aria-label="Loại bài đăng"
+              value={kind || 'post'}
+              disabled={busy}
+              onChange={(e) => setKind(e.target.value)}
+            >
+              <option value="post">Bài viết</option>
+              <option value="story">Story · 24 giờ</option>
+              <option value="reel">Reel · Video</option>
+            </select>
+          </label>
+        </div>
+      </details>
       <div className="composer-bottom">
         <input
           ref={input}

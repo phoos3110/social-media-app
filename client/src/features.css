@@ -572,3 +572,254 @@
 .composer-bottom {
   flex-wrap: wrap;
 }
+
+.composer-options,
+.hub-tabs,
+.chat-tools,
+.attachment-picker,
+.group-choices,
+.group-message-form,
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.composer-options {
+  padding: 0 20px 16px;
+  display: block;
+}
+.composer-options summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.composer-option-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+}
+.composer-options label {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 160px;
+  font-size: 13px;
+}
+.composer-options select,
+.expanded-editor select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+}
+.song-details,
+.expanded-editor,
+.notification-preferences,
+.group-chat {
+  display: grid;
+  gap: 12px;
+}
+.song-details input {
+  width: 100%;
+  min-width: 0;
+}
+.song-result {
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+}
+.song-card {
+  padding: 12px 20px;
+  display: grid;
+  gap: 6px;
+}
+.song-card .youtube-song {
+  margin: 0;
+}
+.editor-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.editor-assets > div {
+  width: 140px;
+  display: grid;
+  gap: 4px;
+}
+.editor-assets img,
+.editor-assets video {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.expanded-editor label {
+  display: grid;
+  gap: 4px;
+}
+.inline-token {
+  display: inline;
+  padding: 0;
+  font: inherit;
+  color: var(--primary);
+}
+.reactions {
+  padding: 8px 20px;
+}
+.reactions button {
+  padding: 5px 8px;
+  border-radius: 20px;
+  font-size: 18px;
+}
+.reactions button[aria-pressed='true'] {
+  background: rgba(24, 119, 242, 0.15);
+  outline: 1px solid currentColor;
+}
+.audience-label {
+  display: block;
+  padding: 0 20px;
+  opacity: 0.7;
+}
+.post-preferences {
+  margin: 8px 20px;
+  font-size: 12px;
+}
+.post-preferences summary,
+.notification-preferences summary {
+  cursor: pointer;
+}
+.post-preferences button {
+  padding: 8px;
+}
+.social-hub {
+  margin-bottom: 16px;
+}
+.social-hub > p {
+  padding: 8px;
+}
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 0;
+}
+.notification-preferences {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.notification-preferences .setting-row input[type='checkbox'] {
+  width: auto;
+}
+.chat-tools {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.chat-tools button,
+.attachment-picker button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.voice-message {
+  width: 100%;
+  max-width: 280px;
+  height: 42px;
+}
+.file-message {
+  display: block;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+}
+.group-chat {
+  padding: 20px;
+  margin-top: 12px;
+}
+.group-choices {
+  max-height: 160px;
+  overflow: auto;
+}
+.group-message-list {
+  min-height: 180px;
+  max-height: 450px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px;
+}
+.group-message {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.1);
+  max-width: 85%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.group-message.own-message {
+  align-self: flex-end;
+  background: rgba(24, 119, 242, 0.12);
+}
+.group-message small {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.group-message-form input {
+  flex: 1;
+  min-width: 140px;
+}
+.call-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.call-panel > p {
+  width: 100%;
+}
+.call-remote {
+  width: 100%;
+  max-height: 360px;
+  background: #111;
+  border-radius: 12px;
+}
+.call-self {
+  width: 120px;
+  max-height: 100px;
+  background: #111;
+  border-radius: 8px;
+}
+.call-audio {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  opacity: 0;
+}
+.call-preparing {
+  position: fixed;
+  bottom: 90px;
+  right: 20px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  z-index: 100;
+}
+
+:root {
+  --surface: #fff;
+  --border: #e0e5df;
+  --primary: #356b57;
+}
+:root[data-theme='dark'] {
+  --surface: #1c2722;
+  --border: #35463e;
+  --primary: #8ecdb2;
+}

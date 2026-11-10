@@ -12,6 +12,12 @@
 
 ## Chức năng
 
+- Sửa toàn bộ bài viết: thêm/bỏ ảnh/video, thay bài hát, tên bài/ca sĩ và quyền xem công khai/người theo dõi/chỉ mình tôi. Tài khoản riêng tư vẫn giới hạn quyền xem bài công khai.
+- Ẩn/hiện lại bài, tắt thông báo từng bài, cài đặt từng loại thông báo; 6 cảm xúc, hashtag và nhắc tên `@username` có thông báo theo quyền xem.
+- Stories tự hết hạn sau 24 giờ; Reels có luồng xem video riêng. Chọn loại bài trong ô soạn để đăng.
+- Chat: tìm kiếm lịch sử, sửa tin đã gửi, gửi PDF/TXT/ZIP/âm thanh và ghi âm tối đa 2 phút; nhóm tối đa 50 thành viên với quản lý thành viên, rời/giải tán nhóm và thu hồi tin.
+- Gọi thoại/video một-một bằng WebRTC, nhận/trả lời/từ chối cuộc gọi, tắt micro/camera. Cần HTTPS hoặc localhost, quyền micro/camera và người nhận đang mở web. Cấu hình TURN qua `WEBRTC_ICE_SERVERS` để hỗ trợ mạng khác nhau.
+- Tìm nhạc theo tên cần `YOUTUBE_API_KEY` (YouTube Data API v3). Lấy tên từ link qua oEmbed hoặc nhập thủ công không cần khóa. Xem `server/.env.example`.
 - Đăng bài hát từ link YouTube/YouTube Music: chọn **Bài hát**, dán link, xem trước và đăng. Có thể đăng riêng bài hát hoặc kèm nội dung/ảnh/video; link được lưu trong bản nháp. Trình phát nhúng không cần API key; video bị chủ sở hữu chặn nhúng có thể mở bằng liên kết YouTube.
 - Đăng ký, đăng nhập, đăng xuất; mật khẩu hash bcrypt và session cookie HttpOnly.
 - Hồ sơ, avatar, ảnh bìa, giới thiệu; danh sách theo dõi, tài khoản riêng tư, duyệt yêu cầu và chặn hai chiều.
@@ -144,7 +150,7 @@ Deploy miễn phí lên Render với Neon và Cloudinary: xem [hướng dẫn t�
 
 Compose hiện dành cho local: HTTP, mật khẩu database mặc định và cookie không có Secure. Trước khi public, cần HTTPS, domain trong `CLIENT_ORIGIN`, `COOKIE_SECURE=true`, mật khẩu riêng và cơ chế sao lưu. Dùng PostgreSQL cloud và Cloudinary nếu nền tảng không có ổ đĩa bền vững.
 
-Phiên bản hiện tại chạy một backend instance; nhiều instance cần adapter chia sẻ sự kiện Socket.IO và rate-limit store chung. Chat nhóm, gọi thoại/video, Stories/Reels và mã hóa đầu cuối chưa được triển khai. Email, push và quyền quản trị cần cấu hình môi trường trong DEPLOY-RENDER.md; chúng không tự kích hoạt chỉ bằng việc deploy code.
+Phiên bản hiện tại chạy một backend instance; nhiều instance cần adapter chia sẻ sự kiện Socket.IO, trạng thái cuộc gọi và rate-limit store chung. Mã hóa đầu cuối cho lịch sử chat chưa được triển khai. Email, push, tìm nhạc và TURN cần cấu hình môi trường; chúng không tự kích hoạt chỉ bằng việc deploy code.
 
 ## Tài liệu tham khảo
 

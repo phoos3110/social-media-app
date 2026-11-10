@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ThumbsUp, MessageCircle, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react';
+import { ThumbsUp, MessageCircle, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { api, timeAgo } from '../lib/api';
 import type { SocialPost, User } from '../types/social';
 import { Avatar } from './ui';
 import Comments from './Comments';
+import PostEditor from './PostEditor';
+import RichText from './RichText';
+import { PostPreferences, Reactions } from './PostControls';
 import { useOptimisticLike } from '../lib/useOptimisticLike';
 import { useConfirm } from '../lib/confirmation';
 import {
@@ -43,7 +46,6 @@ export default function FeedPost({
   const toggleLike = useOptimisticLike(post, onChange, onError);
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [showComments, setShowComments] = useState(Boolean(initialCommentId));
   const [commentsOpened, setCommentsOpened] = useState(Boolean(initialCommentId));
@@ -111,7 +113,6 @@ export default function FeedPost({
               <div className="dropdown">
                 <button
                   onClick={() => {
-                    setDraft(post.content);
                     setEditing(true);
                     setMenu(false);
                   }}
@@ -148,67 +149,39 @@ export default function FeedPost({
         )}
       </header>
       {editing ? (
-        <form
-          className="edit-post"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run(async () => {
-              const data = await api<{ post: SocialPost }>(`/posts/${post.id}`, 'PATCH', {
-                content: draft,
-              });
-              onChange(data.post);
-              setEditing(false);
-            });
+        <PostEditor
+          post={post}
+          onSaved={(updated) => {
+            onChange(updated);
+            setEditing(false);
           }}
-        >
-          <textarea
-            disabled={busy}
-            aria-label="Sửa nội dung bài viết"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            maxLength={5000}
-          />
-          <div>
-            <button
-              type="button"
-              className="secondary"
-              disabled={busy}
-              onClick={async () => {
-                if (
-                  draft !== post.content &&
-                  !(await confirm({
-                    title: 'Bỏ thay đổi?',
-                    message: 'Nội dung bạn vừa sửa chưa được lưu.',
-                    confirmLabel: 'Bỏ thay đổi',
-                  }))
-                )
-                  return;
-                setEditing(false);
-              }}
-            >
-              <X size={15} />
-              Hủy
-            </button>
-            <button
-              className="primary"
-              disabled={
-                busy ||
-                (!draft.trim() &&
-                  !post.image &&
-                  !post.media?.length &&
-                  !post.sharedPostId &&
-                  !post.youtubeId)
-              }
-            >
-              <Check size={15} />
-              Lưu
-            </button>
-          </div>
-        </form>
+          onCancel={() => setEditing(false)}
+          onError={onError}
+        />
       ) : (
-        post.content && <p className="post-content">{post.content}</p>
+        post.content && (
+          <p className="post-content">
+            <RichText text={post.content} />
+          </p>
+        )
       )}
+      <small className="audience-label">
+        {post.audience === 'private'
+          ? 'Chỉ mình tôi'
+          : post.audience === 'followers'
+            ? 'Người theo dõi'
+            : post.author.isPrivate
+              ? 'Tài khoản riêng tư'
+              : 'Công khai'}
+      </small>
+      <PostPreferences
+        post={post}
+        onHide={() => onDelete(post.id)}
+        onChange={onChange}
+        onError={onError}
+      />
       <PostMedia post={post} />
+      <Reactions post={post} onChange={onChange} onError={onError} />
       {post.sharedPostId && <SharedPreview postId={post.sharedPostId} />}
       <div className="post-stats">
         <button className="likers-link" onClick={() => setLikers(true)}>

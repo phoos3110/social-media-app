@@ -24,6 +24,8 @@ import AccountLink from './components/AccountLink';
 import { usePresence } from './lib/usePresence';
 import { useConfirm } from './lib/confirmation';
 import Composer from './components/Composer';
+import SocialHub from './components/SocialHub';
+import CallPanel from './components/CallPanel';
 import FeedPost from './components/FeedPost';
 import Profile from './components/Profile';
 import Chat from './components/Chat';
@@ -102,6 +104,11 @@ export default function App() {
   const followLocks = useRef(new Set<string>());
   const feedRequest = useRef(0);
   const notify = useCallback((message: string) => setToast(message), []);
+  useEffect(() => {
+    const update = () => setRefresh((r) => r + 1);
+    window.addEventListener('po:feed-refresh', update);
+    return () => window.removeEventListener('po:feed-refresh', update);
+  }, []);
   function boot() {
     setBootError('');
     setBooting(true);
@@ -133,15 +140,19 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   const refreshBadges = useCallback(async () => {
-    const [notifications, chats] = await Promise.all([
+    const [notifications, chats, groups] = await Promise.all([
       api<{ notifications: Notice[]; unread: number; hasMore: boolean }>('/notifications'),
       api<{ conversations: Conversation[] }>('/conversations'),
+      api<{ groups: { unread: number }[] }>('/groups'),
     ]);
     setUnread(notifications.unread);
     setNotices(notifications.notifications);
     setNoticePage(1);
     setMoreNotices(notifications.hasMore);
-    setUnreadMessages(chats.conversations.reduce((sum, c) => sum + c.unread, 0));
+    setUnreadMessages(
+      chats.conversations.reduce((sum, c) => sum + c.unread, 0) +
+        groups.groups.reduce((sum, g) => sum + g.unread, 0),
+    );
   }, []);
   const handleRead = useCallback(() => {
     void refreshBadges().catch((error) => notify(error.message));
@@ -173,6 +184,10 @@ export default function App() {
     connection.on('notification:new', update);
     connection.on('message:new', update);
     connection.on('conversation:read', update);
+    connection.on('group:message', update);
+    connection.on('group:changed', update);
+    connection.on('group:read', update);
+    connection.on('group:recalled', update);
     update();
     const expire = () => {
       setMe(null);
@@ -240,6 +255,30 @@ export default function App() {
       feedRequest.current = request + 1;
     };
   }, [userId, view, feed, keyword, profileId, refresh, feedKey, notify]);
+  useEffect(() => {
+    const searchToken = (event: Event) => {
+      const token = (event as CustomEvent<string>).detail;
+      setView('feed');
+      setFocusedPost(null);
+      setSearch(token.startsWith('@') ? token.slice(1) : token);
+      if (token.startsWith('@'))
+        void api<{ users: User[] }>(`/users?search=${encodeURIComponent(token.slice(1))}`)
+          .then((data) => {
+            const user = data.users.find(
+              (u) => u.username.toLowerCase() === token.slice(1).toLowerCase(),
+            );
+            if (user) {
+              setView('profile');
+              setProfileId(user.id);
+              setSearch('');
+              setKeyword('');
+            }
+          })
+          .catch(() => {});
+    };
+    window.addEventListener('po:search', searchToken);
+    return () => window.removeEventListener('po:search', searchToken);
+  }, []);
   function navigate(next: View) {
     setView(next);
     setSearch('');
@@ -516,6 +555,7 @@ export default function App() {
   }[view];
   return (
     <div className={`app-layout ${mobileSearchOpen ? 'search-open' : ''}`} data-view={view}>
+      <CallPanel socket={socket} onError={notify} />
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-left">
@@ -734,12 +774,15 @@ export default function App() {
                     }}
                   />
                 )}
+                {view === 'feed' && <SocialHub me={me} onProfile={openProfile} onError={notify} />}
                 {view === 'feed' && (
                   <Composer
                     user={me}
                     onError={notify}
                     onCreated={(post) => {
-                      setPosts((previous) => [post, ...previous.filter((p) => p.id !== post.id)]);
+                      if (!post.kind || post.kind === 'post')
+                        setPosts((previous) => [post, ...previous.filter((p) => p.id !== post.id)]);
+                      else window.dispatchEvent(new Event('po:feed-refresh'));
                       setSearch('');
                       setKeyword('');
                       if (keyword || feed === 'following') {
@@ -958,15 +1001,17 @@ export default function App() {
                             <span className="notice-content">
                               <p>
                                 <strong>{n.actor.name}</strong>{' '}
-                                {n.kind === 'like'
-                                  ? 'đã thích bài viết của bạn.'
-                                  : n.kind === 'comment'
-                                    ? 'đã bình luận về bài viết của bạn.'
-                                    : n.kind === 'reply'
-                                      ? 'đã trả lời bình luận của bạn.'
-                                      : n.kind === 'request'
-                                        ? 'đã gửi yêu cầu theo dõi bạn.'
-                                        : 'đã bắt đầu theo dõi bạn.'}
+                                {n.kind === 'mention'
+                                  ? 'đã nhắc đến bạn'
+                                  : n.kind === 'like'
+                                    ? 'đã thích bài viết của bạn.'
+                                    : n.kind === 'comment'
+                                      ? 'đã bình luận về bài viết của bạn.'
+                                      : n.kind === 'reply'
+                                        ? 'đã trả lời bình luận của bạn.'
+                                        : n.kind === 'request'
+                                          ? 'đã gửi yêu cầu theo dõi bạn.'
+                                          : 'đã bắt đầu theo dõi bạn.'}
                               </p>
                               <small>{timeAgo(n.createdAt)}</small>
                             </span>

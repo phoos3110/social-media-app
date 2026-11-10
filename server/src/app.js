@@ -19,6 +19,11 @@ import { messagingRoutes } from './messaging.js';
 import { youtubeId } from './youtube.js';
 import { videoRoutes } from './media.js';
 import { mediaAccess, storeAsset } from './media-access.js';
+import { socialRoutes } from './social.js';
+import { protectLegacyMedia } from './media-access.js';
+import { attachmentRoutes } from './attachments.js';
+import { groupRoutes } from './groups.js';
+import { callRoutes } from './calls.js';
 
 const SESSION_AGE = 7 * 24 * 60 * 60 * 1000;
 const hash = (token) => createHash('sha256').update(token).digest('hex');
@@ -54,7 +59,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
     .filter(Boolean);
   const io = new Server(http, {
     cors: { origin: allowedOrigins, credentials: true },
-    maxHttpBufferSize: 16_384,
+    maxHttpBufferSize: 65_536,
   });
   const uploadDir = fileURLToPath(new URL('../uploads/', import.meta.url));
   const production = process.env.NODE_ENV === 'production';
@@ -147,6 +152,16 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
     });
   }
   async function notify(userId, actorId, kind, postId = null, commentId = null) {
+    const settings = await one('SELECT notification_preferences FROM users WHERE id=$1', [userId]);
+    if (settings?.notification_preferences?.[kind] === false) return;
+    if (
+      postId &&
+      (await one('SELECT 1 FROM post_preferences WHERE user_id=$1 AND post_id=$2 AND muted', [
+        userId,
+        postId,
+      ]))
+    )
+      return;
     if (
       userId === actorId ||
       (await one(
@@ -168,6 +183,25 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
       });
     }
   }
+  async function mentions(content, actorId, postId, commentId = null) {
+    const usernames = [
+      ...new Set(
+        [...content.matchAll(/(?:^|\s)@([A-Za-z0-9_]{3,30})/g)].map((m) => m[1].toLowerCase()),
+      ),
+    ].slice(0, 20);
+    if (!usernames.length) return;
+    const users = await q(
+      'SELECT id FROM users WHERE lower(username)=ANY($1::text[]) AND banned=FALSE',
+      [usernames],
+    );
+    for (const user of users) {
+      const allowed = await one(`SELECT 1 FROM posts p WHERE p.id=$2 AND ${visiblePost()}`, [
+        user.id,
+        postId,
+      ]);
+      if (allowed) await notify(user.id, actorId, 'mention', postId, commentId);
+    }
+  }
   async function requirePost(postId, viewerId) {
     const post = await one(`SELECT p.* FROM posts p WHERE p.id=$2 AND ${visiblePost()}`, [
       viewerId,
@@ -179,6 +213,9 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
   const postSelect = `SELECT p.*,row_to_json(u) AS author,
     (SELECT COUNT(*)::int FROM likes l WHERE l.post_id=p.id) AS like_count,
     EXISTS(SELECT 1 FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS is_liked,
+    (SELECT reaction FROM likes l WHERE l.post_id=p.id AND l.user_id=$1) AS my_reaction,
+    (SELECT json_object_agg(reaction,total) FROM (SELECT reaction,COUNT(*)::int AS total FROM likes WHERE post_id=p.id GROUP BY reaction) counts) AS reactions,
+    EXISTS(SELECT 1 FROM post_preferences pref WHERE pref.post_id=p.id AND pref.user_id=$1 AND pref.muted) AS is_muted,
     (SELECT COUNT(*)::int FROM comments c WHERE c.post_id=p.id) AS comment_count,
     EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id=p.id AND b.user_id=$1) AS is_saved
     FROM posts p JOIN (SELECT id,username,name,bio,avatar,cover,is_private,banned,created_at FROM users) u ON u.id=p.user_id`;
@@ -187,6 +224,14 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
       id: p.id,
       author: publicUser(p.author),
       content: p.content,
+      audience: p.audience,
+      kind: p.kind,
+      expiresAt: p.expires_at,
+      songTitle: p.song_title,
+      songArtist: p.song_artist,
+      myReaction: p.my_reaction || null,
+      reactions: p.reactions || {},
+      isMuted: p.is_muted,
       image: p.image,
       media: p.media?.length ? p.media : p.image ? [{ url: p.image, kind: 'image' }] : [],
       youtubeId: p.youtube_id || null,
@@ -264,6 +309,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
   accountRoutes({ app, db, auth, authLimit, io, startSession, allowedOrigins, sendMail });
   app.use('/api', auth);
   videoRoutes(app, db);
+  attachmentRoutes(app, db);
   const legacyMedia = mediaAccess(app, db);
   const { blocked, peer, changed } = communityRoutes({
     app,
@@ -274,9 +320,13 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
     postJSON,
     requirePost,
     ownedImage,
+    mentions,
   });
   const push = pushRoutes({ app, db, sendPush });
   messagingRoutes({ app, db, io, peer, ownedImage, push });
+  socialRoutes({ app, db, io, requirePost, postSelect, postJSON, notify });
+  groupRoutes({ app, db, io, peer, publicUser, push });
+  callRoutes({ app, db, io, peer, publicUser });
 
   app.get('/api/users', async (req, res) => {
     const search = z
@@ -479,16 +529,25 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
         search: z.string().max(100).default(''),
         author: uuid.optional(),
         feed: z.enum(['all', 'following']).default('all'),
+        kind: z.enum(['post', 'story', 'reel']).default('post'),
         page: z.coerce.number().int().min(1).max(10000).default(1),
       })
       .parse(req.query);
     const rows = await q(
       `${postSelect} WHERE (p.content ILIKE $2 OR u.name ILIKE $2 OR u.username ILIKE $2)
       AND ${visiblePost()}
+      AND p.kind=$6 AND NOT EXISTS(SELECT 1 FROM post_preferences pref WHERE pref.user_id=$1 AND pref.post_id=p.id AND pref.hidden)
       AND ($3::uuid IS NULL OR p.user_id=$3)
       AND ($4='all' OR p.user_id=$1 OR EXISTS(SELECT 1 FROM follows f WHERE f.follower_id=$1 AND f.following_id=p.user_id))
       ORDER BY p.created_at DESC,p.id DESC LIMIT 21 OFFSET $5`,
-      [req.user.id, `%${input.search}%`, input.author || null, input.feed, (input.page - 1) * 20],
+      [
+        req.user.id,
+        `%${input.search}%`,
+        input.author || null,
+        input.feed,
+        (input.page - 1) * 20,
+        input.kind,
+      ],
     );
     res.json({ posts: rows.slice(0, 20).map(postJSON), hasMore: rows.length > 20 });
   });
@@ -508,6 +567,8 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
     );
     if (rows.length !== ids.length)
       throw new HttpError(400, 'Tệp tải lên không hợp lệ hoặc không thuộc tài khoản này.');
+    if (rows.some((row) => !['image', 'video'].includes(row.kind)))
+      throw new HttpError(400, 'Bài viết chỉ nhận ảnh/video.');
     return ids.map((id) => {
       const item = rows.find((row) => row.id === id);
       return { url: item.url, kind: item.kind };
@@ -520,6 +581,10 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
         uploadId: uuid.optional(),
         uploadIds: z.array(uuid).max(10).optional(),
         sharedPostId: uuid.optional(),
+        audience: z.enum(['public', 'followers', 'private']).default('public'),
+        kind: z.enum(['post', 'story', 'reel']).default('post'),
+        songTitle: z.string().trim().max(200).default(''),
+        songArtist: z.string().trim().max(200).default(''),
         youtubeUrl: z
           .string()
           .trim()
@@ -533,11 +598,14 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
       input.uploadIds || (input.uploadId ? [input.uploadId] : []),
     );
     if (input.sharedPostId) await requirePost(input.sharedPostId, req.user.id);
+    if (input.kind === 'reel' && !media.some((m) => m.kind === 'video'))
+      throw new HttpError(400, 'Reel cần ít nhất một video.');
+    if (input.audience !== 'public') await protectLegacyMedia(db, req.user.id);
     if (!input.content && !media.length && !input.sharedPostId && !input.youtubeUrl)
       throw new HttpError(400, 'Hãy nhập nội dung hoặc chọn ảnh/video.');
     const postId = randomUUID();
     await db.query(
-      'INSERT INTO posts(id,user_id,content,image,media,shared_post_id,youtube_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      'INSERT INTO posts(id,user_id,content,image,media,shared_post_id,youtube_id,audience,kind,expires_at,song_title,song_artist) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
       [
         postId,
         req.user.id,
@@ -546,9 +614,15 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
         JSON.stringify(media),
         input.sharedPostId || null,
         input.youtubeUrl ? youtubeId(input.youtubeUrl) : null,
+        input.audience,
+        input.kind,
+        input.kind === 'story' ? new Date(Date.now() + 86400000) : null,
+        input.songTitle,
+        input.songArtist,
       ],
     );
     io.emit('feed:changed');
+    await mentions(input.content, req.user.id, postId);
     res
       .status(201)
       .json({ post: postJSON(await one(`${postSelect} WHERE p.id=$2`, [req.user.id, postId])) });
@@ -558,23 +632,71 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
     if (post.user_id !== req.user.id)
       throw new HttpError(403, 'Bạn chỉ được sửa bài viết của mình.');
     const input = z
-      .object({ content: z.string().trim().max(5000), uploadIds: z.array(uuid).max(10).optional() })
+      .object({
+        content: z.string().trim().max(5000),
+        uploadIds: z.array(uuid).max(10).optional(),
+        retainedMedia: z.array(z.string().max(2048)).max(10).optional(),
+        audience: z.enum(['public', 'followers', 'private']).optional(),
+        youtubeUrl: z
+          .string()
+          .trim()
+          .max(2048)
+          .refine((url) => !url || Boolean(youtubeId(url)), 'Link YouTube không hợp lệ.')
+          .optional(),
+        songTitle: z.string().trim().max(200).optional(),
+        songArtist: z.string().trim().max(200).optional(),
+      })
       .parse(req.body);
-    const media = input.uploadIds
-      ? await ownedMedia(req.user.id, input.uploadIds)
-      : post.media?.length
-        ? post.media
-        : post.image
-          ? [{ url: post.image, kind: 'image' }]
-          : [];
-    if (!input.content && !media.length && !post.shared_post_id && !post.youtube_id)
+    const previousMedia = post.media?.length
+      ? post.media
+      : post.image
+        ? [{ url: post.image, kind: 'image' }]
+        : [];
+    if (input.retainedMedia?.some((url) => !previousMedia.some((m) => m.url === url)))
+      throw new HttpError(400, 'Tệp giữ lại không thuộc bài viết.');
+    const media = input.retainedMedia
+      ? [
+          ...previousMedia.filter((m) => input.retainedMedia.includes(m.url)),
+          ...(await ownedMedia(req.user.id, input.uploadIds || [])),
+        ]
+      : input.uploadIds
+        ? await ownedMedia(req.user.id, input.uploadIds)
+        : previousMedia;
+    if (media.length > 10) throw new HttpError(400, 'Tối đa 10 ảnh/video.');
+    if (post.kind === 'reel' && !media.some((m) => m.kind === 'video'))
+      throw new HttpError(400, 'Reel cần ít nhất một video.');
+    const song =
+      input.youtubeUrl === undefined
+        ? post.youtube_id
+        : input.youtubeUrl
+          ? youtubeId(input.youtubeUrl)
+          : null;
+    if (!input.content && !media.length && !post.shared_post_id && !song)
       throw new HttpError(400, 'Hãy nhập nội dung hoặc chọn ảnh/video.');
-    await db.query('UPDATE posts SET content=$1,media=$2,image=$3,updated_at=NOW() WHERE id=$4', [
-      input.content,
-      JSON.stringify(media),
-      media.find((m) => m.kind === 'image')?.url || '',
-      post.id,
-    ]);
+    if (input.audience && input.audience !== 'public') {
+      await protectLegacyMedia(db, req.user.id);
+      for (const item of media) {
+        const asset = await one(
+          'SELECT url FROM uploads WHERE user_id=$1 AND (url=$2 OR source_url=$2)',
+          [req.user.id, item.url],
+        );
+        if (asset) item.url = asset.url;
+      }
+    }
+    await db.query(
+      'UPDATE posts SET content=$1,media=$2,image=$3,updated_at=NOW(),youtube_id=$5,audience=$6,song_title=$7,song_artist=$8 WHERE id=$4',
+      [
+        input.content,
+        JSON.stringify(media),
+        media.find((m) => m.kind === 'image')?.url || '',
+        post.id,
+        song,
+        input.audience || post.audience,
+        input.songTitle ?? post.song_title,
+        input.songArtist ?? post.song_artist,
+      ],
+    );
+    await mentions(input.content, req.user.id, post.id);
     changed(post.id);
     res.json({ post: postJSON(await one(`${postSelect} WHERE p.id=$2`, [req.user.id, post.id])) });
   });
@@ -690,6 +812,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
     if (parent) await notify(parent.user_id, req.user.id, 'reply', post.id, created.id);
     if (!parent || parent.user_id !== post.user_id)
       await notify(post.user_id, req.user.id, 'comment', post.id, created.id);
+    await mentions(content, req.user.id, post.id, created.id);
     changed(post.id);
     res.status(201).json({
       ok: true,

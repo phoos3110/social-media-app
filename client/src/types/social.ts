@@ -25,6 +25,14 @@ export type SocialPost = {
   commentCount: number;
   media?: { url: string; kind: 'image' | 'video' }[];
   youtubeId?: string | null;
+  songTitle?: string;
+  songArtist?: string;
+  audience?: 'public' | 'followers' | 'private';
+  kind?: 'post' | 'story' | 'reel';
+  expiresAt?: string | null;
+  myReaction?: string | null;
+  reactions?: Record<string, number>;
+  isMuted?: boolean;
   sharedPostId?: string | null;
   isSaved?: boolean;
 };
@@ -41,7 +49,7 @@ export type PostComment = {
 export type Notice = {
   id: string;
   actor: User;
-  kind: 'like' | 'comment' | 'follow' | 'reply' | 'request';
+  kind: 'like' | 'comment' | 'follow' | 'reply' | 'request' | 'mention';
   postId: string | null;
   commentId?: string | null;
   readAt: string | null;
@@ -64,5 +72,8 @@ export type Message = {
     recalledAt: string | null;
   } | null;
   recalledAt?: string | null;
+  editedAt?: string | null;
+  attachment?: Attachment | null;
 };
+export type Attachment = { id: string; url: string; kind: 'file' | 'audio'; name: string };
 export type Conversation = { user: User; lastMessage: string; lastAt: string; unread: number };

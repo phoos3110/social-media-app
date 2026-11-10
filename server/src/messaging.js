@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { ownedAttachment } from './attachments.js';
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function messagingRoutes({ app, db, io, peer, ownedImage, push }) {
   const q = async (s, p = []) => (await db.query(s, p)).rows;
@@ -18,6 +19,8 @@ export function messagingRoutes({ app, db, io, peer, ownedImage, push }) {
     createdAt: m.created_at,
     readAt: m.read_at,
     recalledAt: m.recalled_at,
+    editedAt: m.edited_at,
+    attachment: m.attachment,
   });
   const pair = `((m.sender_id=$1 AND m.recipient_id=$2) OR (m.sender_id=$2 AND m.recipient_id=$1))`;
   app.get('/api/messages/:id', async (req, res) => {
@@ -29,9 +32,13 @@ export function messagingRoutes({ app, db, io, peer, ownedImage, push }) {
       .min(1)
       .max(10000)
       .parse(req.query.page || 1);
+    const search = z
+      .string()
+      .max(100)
+      .parse(req.query.search || '');
     const rows = await q(
-      `${select} WHERE ${pair} ORDER BY m.created_at DESC,m.id DESC LIMIT 41 OFFSET $3`,
-      [req.user.id, target, (page - 1) * 40],
+      `${select} WHERE ${pair} AND ($4='' OR (m.recalled_at IS NULL AND m.content ILIKE '%'||$4||'%')) ORDER BY m.created_at DESC,m.id DESC LIMIT 41 OFFSET $3`,
+      [req.user.id, target, (page - 1) * 40, search],
     );
     res.json({ messages: rows.slice(0, 40).reverse().map(json), hasMore: rows.length > 40 });
   });
@@ -51,15 +58,17 @@ export function messagingRoutes({ app, db, io, peer, ownedImage, push }) {
     const target = id(req.params.id);
     if (target === req.user.id) throw fail(400, 'Hãy chọn người nhận khác.');
     await peer(req.user.id, target);
-    const { content, uploadId, replyToId, clientId } = z
+    const { content, uploadId, replyToId, clientId, attachmentId } = z
       .object({
         content: z.string().trim().max(2000).default(''),
         uploadId: z.uuid().optional(),
         replyToId: z.uuid().optional(),
         clientId: z.uuid().optional(),
+        attachmentId: z.uuid().optional(),
       })
       .parse(req.body);
-    if (!content && !uploadId) throw fail(400, 'Nhập nội dung hoặc chọn ảnh.');
+    if (!content && !uploadId && !attachmentId) throw fail(400, 'Nhập nội dung hoặc chọn tệp.');
+    const attachment = await ownedAttachment(db, req.user.id, attachmentId);
     const image = await ownedImage(req.user.id, uploadId);
     if (
       replyToId &&
@@ -70,8 +79,17 @@ export function messagingRoutes({ app, db, io, peer, ownedImage, push }) {
     )
       throw fail(400, 'Tin nhắn được trả lời không còn khả dụng.');
     const inserted = await one(
-      `INSERT INTO messages(id,sender_id,recipient_id,content,image,reply_to_id,client_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id`,
-      [randomUUID(), req.user.id, target, content, image, replyToId || null, clientId || null],
+      `INSERT INTO messages(id,sender_id,recipient_id,content,image,reply_to_id,client_id,attachment) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id`,
+      [
+        randomUUID(),
+        req.user.id,
+        target,
+        content,
+        image,
+        replyToId || null,
+        clientId || null,
+        attachment ? JSON.stringify(attachment) : null,
+      ],
     );
     const row = inserted
       ? await one(`${select} WHERE m.id=$1`, [inserted.id])
@@ -81,26 +99,48 @@ export function messagingRoutes({ app, db, io, peer, ownedImage, push }) {
       row.recipient_id !== target ||
       row.content !== content ||
       row.image !== image ||
+      (row.attachment?.id || null) !== (attachment?.id || null) ||
       row.reply_to_id !== (replyToId || null)
     )
       throw fail(409, 'Mã gửi tin nhắn đã được sử dụng.');
     const payload = json(row);
     if (inserted) {
       io.to(`user:${target}`).to(`user:${req.user.id}`).emit('message:new', payload);
-      void push(target, {
-        body: 'Bạn có tin nhắn mới.',
-        url: `/#chat=${req.user.id}`,
-        tag: `chat-${req.user.id}`,
-      });
+      const settings = await one('SELECT notification_preferences FROM users WHERE id=$1', [
+        target,
+      ]);
+      if (settings?.notification_preferences?.message !== false)
+        void push(target, {
+          body: 'Bạn có tin nhắn mới.',
+          url: `/#chat=${req.user.id}`,
+          tag: `chat-${req.user.id}`,
+        });
     }
     res.status(201).json({ message: payload });
+  });
+  app.patch('/api/messages/:id', async (req, res) => {
+    const { content } = z.object({ content: z.string().trim().min(1).max(2000) }).parse(req.body);
+    const message = await one('SELECT * FROM messages WHERE id=$1', [id(req.params.id)]);
+    if (!message) throw fail(404, 'Tin nhắn không tồn tại.');
+    if (message.sender_id !== req.user.id) throw fail(403, 'Chỉ được sửa tin nhắn của mình.');
+    if (message.recalled_at) throw fail(400, 'Tin nhắn đã thu hồi.');
+    await peer(req.user.id, message.recipient_id);
+    await db.query(
+      'UPDATE messages SET content=$1,edited_at=NOW() WHERE id=$2 AND recalled_at IS NULL',
+      [content, message.id],
+    );
+    const payload = json(await one(`${select} WHERE m.id=$1`, [message.id]));
+    io.to(`user:${message.sender_id}`)
+      .to(`user:${message.recipient_id}`)
+      .emit('message:edited', payload);
+    res.json({ message: payload });
   });
   app.delete('/api/messages/:id', async (req, res) => {
     const message = await one('SELECT * FROM messages WHERE id=$1', [id(req.params.id)]);
     if (!message) throw fail(404, 'Tin nhắn không tồn tại.');
     if (message.sender_id !== req.user.id) throw fail(403, 'Chỉ được thu hồi tin nhắn của mình.');
     await db.query(
-      "UPDATE messages SET content='',image='',recalled_at=COALESCE(recalled_at,NOW()) WHERE id=$1",
+      "UPDATE messages SET content='',image='',attachment=NULL,recalled_at=COALESCE(recalled_at,NOW()) WHERE id=$1",
       [message.id],
     );
     const payload = json(await one(`${select} WHERE m.id=$1`, [message.id]));

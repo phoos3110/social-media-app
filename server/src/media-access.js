@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { v2 as cloudinary } from 'cloudinary';
 import { z } from 'zod';
 import { adminUser } from './accounts.js';
+import { visiblePost } from './community.js';
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function mediaAccess(app, db) {
   async function serve(req, res, asset) {
@@ -28,22 +29,25 @@ export function mediaAccess(app, db) {
     if (
       !admin &&
       asset.user_id !== req.user.id &&
-      owner.is_private &&
       owner.avatar !== asset.url &&
       owner.cover !== asset.url
     ) {
       const allowed = (
         await db.query(
-          `SELECT 1 WHERE EXISTS(SELECT 1 FROM follows WHERE follower_id=$1 AND following_id=$2)
-        OR EXISTS(SELECT 1 FROM messages WHERE image=$3 AND recalled_at IS NULL AND (sender_id=$1 OR recipient_id=$1))`,
+          `SELECT 1 WHERE EXISTS(SELECT 1 FROM posts p WHERE p.user_id=$2 AND (p.image=$3 OR p.media @> jsonb_build_array(jsonb_build_object('url',$3::text))) AND ${visiblePost()})
+        OR EXISTS(SELECT 1 FROM messages WHERE (image=$3 OR attachment->>'url'=$3) AND recalled_at IS NULL AND (sender_id=$1 OR recipient_id=$1))
+        OR EXISTS(SELECT 1 FROM group_messages gm JOIN group_members member ON member.group_id=gm.group_id WHERE gm.attachment->>'url'=$3 AND gm.recalled_at IS NULL AND member.user_id=$1
+          AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.user_id=$1 AND b.target_id=gm.sender_id) OR (b.target_id=$1 AND b.user_id=gm.sender_id)))`,
           [req.user.id, asset.user_id, asset.url],
         )
       ).rows[0];
       if (!allowed) throw fail(403, 'Bạn không có quyền xem tệp này.');
     }
     res.set('Cache-Control', 'private, no-store');
+    if (asset.content_type) res.type(asset.content_type);
+    if (asset.kind === 'file') res.attachment(asset.original_name || 'download');
     const source = asset.source_url || asset.url;
-    if (/^\/uploads\/[a-f0-9-]+\.(webp|mp4|webm)$/.test(source))
+    if (/^\/uploads\/[a-f0-9-]+\.(webp|mp4|webm|pdf|txt|zip|ogg|mp3|m4a|wav)$/.test(source))
       return res.sendFile(fileURLToPath(new URL(`..${source}`, import.meta.url)));
     const sourceUrl = new URL(source);
     if (sourceUrl.protocol !== 'https:' || sourceUrl.hostname !== 'res.cloudinary.com')
@@ -56,7 +60,8 @@ export function mediaAccess(app, db) {
     const url =
       asset.delivery_type === 'authenticated'
         ? cloudinary.url(asset.public_id, {
-            resource_type: asset.kind,
+            resource_type:
+              asset.kind === 'file' ? 'raw' : asset.kind === 'audio' ? 'video' : asset.kind,
             type: 'authenticated',
             sign_url: true,
             secure: true,
@@ -119,7 +124,12 @@ export async function protectLegacyMedia(db, userId) {
       let result;
       try {
         result = await cloudinary.uploader.rename(asset.public_id, asset.public_id, {
-          resource_type: asset.kind,
+          resource_type:
+            asset.kind === 'file'
+              ? 'raw'
+              : ['audio', 'video'].includes(asset.kind)
+                ? 'video'
+                : 'image',
           type: 'upload',
           to_type: 'authenticated',
           overwrite: true,
@@ -128,7 +138,12 @@ export async function protectLegacyMedia(db, userId) {
       } catch (e) {
         if (e.http_code !== 404) throw fail(503, 'Chưa thể bảo vệ tệp cũ. Vui lòng thử lại sau.');
         result = await cloudinary.api.resource(asset.public_id, {
-          resource_type: asset.kind,
+          resource_type:
+            asset.kind === 'file'
+              ? 'raw'
+              : ['audio', 'video'].includes(asset.kind)
+                ? 'video'
+                : 'image',
           type: 'authenticated',
         });
       }
