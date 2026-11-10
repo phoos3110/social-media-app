@@ -24,6 +24,7 @@ export type SocialPost = {
   isLiked: boolean;
   commentCount: number;
   media?: { url: string; kind: 'image' | 'video' }[];
+  youtubeId?: string | null;
   sharedPostId?: string | null;
   isSaved?: boolean;
 };

@@ -1,4 +1,4 @@
-import { before, after, test } from 'node:test';
+﻿import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import request from 'supertest';
@@ -462,4 +462,31 @@ test('deleting an account requires its password and cascades owned content and s
       .rows[0].count,
     0,
   );
+});
+
+test('YouTube songs persist, validate links and survive caption edits', async () => {
+  const { agent } = await person('music');
+  for (const youtubeUrl of [
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://youtu.be/dQw4w9WgXcQ?si=share',
+    'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+  ]) {
+    const created = await agent.post('/api/posts').send({ youtubeUrl }).expect(201);
+    const id = created.body.post.id;
+    assert.equal(created.body.post.youtubeId, 'dQw4w9WgXcQ');
+    const fetched = await agent.get(`/api/posts/${id}`).expect(200);
+    assert.equal(fetched.body.post.youtubeId, 'dQw4w9WgXcQ');
+    const edited = await agent.patch(`/api/posts/${id}`).send({ content: '' }).expect(200);
+    assert.equal(edited.body.post.youtubeId, 'dQw4w9WgXcQ');
+  }
+  for (const youtubeUrl of [
+    'https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ',
+    'javascript:alert(1)',
+    'https://www.youtube.com/playlist?list=test',
+    'https://youtu.be/invalid',
+  ]) {
+    await agent.post('/api/posts').send({ youtubeUrl }).expect(400);
+  }
+  await agent.post('/api/posts').send({ youtubeUrl: '' }).expect(400);
 });

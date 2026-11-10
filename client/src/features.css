@@ -537,3 +537,38 @@
     padding-left: 8px;
   }
 }
+
+.composer-youtube {
+  padding: 0 20px 16px;
+  display: grid;
+  gap: 8px;
+}
+.youtube-input-row {
+  display: flex;
+  gap: 8px;
+}
+.youtube-input-row input {
+  flex: 1;
+  min-width: 0;
+}
+.youtube-song {
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+.feed-post .youtube-song {
+  margin: 12px 20px;
+}
+.youtube-song iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 200px;
+  border: 0;
+  border-radius: 12px;
+}
+.youtube-song a {
+  font-size: 13px;
+}
+.composer-bottom {
+  flex-wrap: wrap;
+}

@@ -1,5 +1,11 @@
 export async function migrateFeatures(db) {
   await db.query(`DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM schema_migrations WHERE version='003_youtube_posts') THEN
+      ALTER TABLE posts ADD COLUMN youtube_id VARCHAR(11);
+      INSERT INTO schema_migrations(version) VALUES('003_youtube_posts');
+    END IF;
+  END $$;`);
+  await db.query(`DO $$ BEGIN
     IF EXISTS(SELECT 1 FROM schema_migrations WHERE version='002_community_features') THEN RETURN; END IF;
     ALTER TABLE users ADD COLUMN cover TEXT NOT NULL DEFAULT '';
     ALTER TABLE users ADD COLUMN is_private BOOLEAN NOT NULL DEFAULT FALSE;

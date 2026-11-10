@@ -16,6 +16,7 @@ import { accountRoutes } from './accounts.js';
 import { communityRoutes, visiblePost } from './community.js';
 import { pushRoutes } from './push.js';
 import { messagingRoutes } from './messaging.js';
+import { youtubeId } from './youtube.js';
 import { videoRoutes } from './media.js';
 import { mediaAccess, storeAsset } from './media-access.js';
 
@@ -73,6 +74,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
           mediaSrc: ["'self'", 'blob:', 'https://res.cloudinary.com'],
+          frameSrc: ['https://www.youtube-nocookie.com'],
           connectSrc: ["'self'"],
           objectSrc: ["'none'"],
           upgradeInsecureRequests: production ? [] : null,
@@ -187,6 +189,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
       content: p.content,
       image: p.image,
       media: p.media?.length ? p.media : p.image ? [{ url: p.image, kind: 'image' }] : [],
+      youtubeId: p.youtube_id || null,
       sharedPostId: p.shared_post_id,
       isSaved: p.is_saved,
       createdAt: p.created_at,
@@ -517,6 +520,12 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
         uploadId: uuid.optional(),
         uploadIds: z.array(uuid).max(10).optional(),
         sharedPostId: uuid.optional(),
+        youtubeUrl: z
+          .string()
+          .trim()
+          .max(2048)
+          .refine((url) => !url || Boolean(youtubeId(url)), 'Link YouTube không hợp lệ.')
+          .optional(),
       })
       .parse(req.body);
     const media = await ownedMedia(
@@ -524,11 +533,11 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
       input.uploadIds || (input.uploadId ? [input.uploadId] : []),
     );
     if (input.sharedPostId) await requirePost(input.sharedPostId, req.user.id);
-    if (!input.content && !media.length && !input.sharedPostId)
+    if (!input.content && !media.length && !input.sharedPostId && !input.youtubeUrl)
       throw new HttpError(400, 'Hãy nhập nội dung hoặc chọn ảnh/video.');
     const postId = randomUUID();
     await db.query(
-      'INSERT INTO posts(id,user_id,content,image,media,shared_post_id) VALUES($1,$2,$3,$4,$5,$6)',
+      'INSERT INTO posts(id,user_id,content,image,media,shared_post_id,youtube_id) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [
         postId,
         req.user.id,
@@ -536,6 +545,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
         media.find((m) => m.kind === 'image')?.url || '',
         JSON.stringify(media),
         input.sharedPostId || null,
+        input.youtubeUrl ? youtubeId(input.youtubeUrl) : null,
       ],
     );
     io.emit('feed:changed');
@@ -557,7 +567,7 @@ export function createApp(db, { testing = false, sendMail, sendPush } = {}) {
         : post.image
           ? [{ url: post.image, kind: 'image' }]
           : [];
-    if (!input.content && !media.length && !post.shared_post_id)
+    if (!input.content && !media.length && !post.shared_post_id && !post.youtube_id)
       throw new HttpError(400, 'Hãy nhập nội dung hoặc chọn ảnh/video.');
     await db.query('UPDATE posts SET content=$1,media=$2,image=$3,updated_at=NOW() WHERE id=$4', [
       input.content,

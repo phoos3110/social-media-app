@@ -4,43 +4,49 @@ import { api } from '../lib/api';
 import type { SocialPost, User } from '../types/social';
 import { Avatar, Loading } from './ui';
 import Modal from './Modal';
+import YouTubeSong from './YouTubeSong';
 export function PostMedia({ post }: { post: SocialPost }) {
   const media = post.media?.length
     ? post.media
     : post.image
       ? [{ url: post.image, kind: 'image' }]
       : [];
-  return media.length ? (
-    <div className={`post-media-grid media-count-${Math.min(media.length, 4)}`}>
-      {media.map((m, i) =>
-        m.kind === 'video' ? (
-          <video
-            className="post-video"
-            key={m.url + i}
-            src={m.url}
-            controls
-            playsInline
-            preload="metadata"
-          />
-        ) : (
-          <a
-            className="post-image-link"
-            href={m.url}
-            target="_blank"
-            rel="noreferrer"
-            key={m.url + i}
-          >
-            <img
-              className="post-image"
-              src={m.url}
-              loading="lazy"
-              alt={`Ảnh ${i + 1} trong bài của ${post.author.name}`}
-            />
-          </a>
-        ),
-      )}
-    </div>
-  ) : null;
+  return (
+    <>
+      {post.youtubeId && <YouTubeSong id={post.youtubeId} />}
+      {media.length ? (
+        <div className={`post-media-grid media-count-${Math.min(media.length, 4)}`}>
+          {media.map((m, i) =>
+            m.kind === 'video' ? (
+              <video
+                className="post-video"
+                key={m.url + i}
+                src={m.url}
+                controls
+                playsInline
+                preload="metadata"
+              />
+            ) : (
+              <a
+                className="post-image-link"
+                href={m.url}
+                target="_blank"
+                rel="noreferrer"
+                key={m.url + i}
+              >
+                <img
+                  className="post-image"
+                  src={m.url}
+                  loading="lazy"
+                  alt={`Ảnh ${i + 1} trong bài của ${post.author.name}`}
+                />
+              </a>
+            ),
+          )}
+        </div>
+      ) : null}
+    </>
+  );
 }
 export function SharedPreview({ postId }: { postId: string }) {
   const [post, setPost] = useState<SocialPost | null>(null),

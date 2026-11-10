@@ -12,6 +12,7 @@
 
 ## Chức năng
 
+- Đăng bài hát từ link YouTube/YouTube Music: chọn **Bài hát**, dán link, xem trước và đăng. Có thể đăng riêng bài hát hoặc kèm nội dung/ảnh/video; link được lưu trong bản nháp. Trình phát nhúng không cần API key; video bị chủ sở hữu chặn nhúng có thể mở bằng liên kết YouTube.
 - Đăng ký, đăng nhập, đăng xuất; mật khẩu hash bcrypt và session cookie HttpOnly.
 - Hồ sơ, avatar, ảnh bìa, giới thiệu; danh sách theo dõi, tài khoản riêng tư, duyệt yêu cầu và chặn hai chiều.
 - Đăng bài chữ/nhiều ảnh/video, sửa/xóa, like, xem người đã like, lưu/chia sẻ; sửa/like bình luận và trả lời nhiều cấp có phân trang.

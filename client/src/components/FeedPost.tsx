@@ -192,7 +192,12 @@ export default function FeedPost({
             <button
               className="primary"
               disabled={
-                busy || (!draft.trim() && !post.image && !post.media?.length && !post.sharedPostId)
+                busy ||
+                (!draft.trim() &&
+                  !post.image &&
+                  !post.media?.length &&
+                  !post.sharedPostId &&
+                  !post.youtubeId)
               }
             >
               <Check size={15} />
